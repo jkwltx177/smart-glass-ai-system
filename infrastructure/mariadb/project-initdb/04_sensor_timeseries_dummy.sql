@@ -7,9 +7,9 @@ USE smart_glass_dev;
 START TRANSACTION;
 
 -- Optional cleanup for rerun
-DELETE FROM sensor_timeseries WHERE inspection_id IN (1,2,3);
+DELETE FROM sensor_timeseries WHERE incident_id IN (1,2,3);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:00:00', 2342, 87.47, 31.59, 31.99, 12.46, 2.37, 0),
 (1, 'DEV-MAF-01', '2026-03-06 09:00:01', 2371, 87.46, 31.58, 31.64, 12.61, 2.82, 0),
