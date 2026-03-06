@@ -1,29 +1,49 @@
-from fastapi import APIRouter
-from app.schemas.api_models import RAGQueryRequest, RAGQueryResponse, ActionPlan
+from fastapi import APIRouter, UploadFile, File, Form, Optional
+from app.schemas.api_models import RAGQueryResponse, ActionPlan
+from app.services.pipeline.workflow import app_pipeline
 
 router = APIRouter()
 
 @router.post("/query", response_model=RAGQueryResponse)
-async def run_rag_query(request: RAGQueryRequest):
-    # 데모 시나리오 기반 Mock 응답 분기
-    if request.incident_id == "demo-maf-sensor":
-        return RAGQueryResponse(
-            action_plan=ActionPlan(
-                steps=["1. 센서 커넥터 확인", "2. 센서 청소", "3. 흡기 라인 점검"],
-                risk_level="MEDIUM",
-                escalation_required=False
-            ),
-            explanation="DTC P0101 기반 공기 유량 센서 성능 저하가 의심됩니다. 오염이나 누설 여부를 먼저 확인하세요.",
-            evidence=["Manual P0101 Section 4.2", "Case Study: dirty MAF sensor on Engine X"]
-        )
+async def run_rag_query_with_files(
+    audio: UploadFile = File(...),          # App.vue의 'audio' 필드와 일치
+    image: Optional[UploadFile] = File(None) # App.vue의 'image' 필드와 일치
+):
+    """프론트엔드 업로드 파일(음성, 이미지)을 받아 즉시 RAG 파이프라인 구동"""
     
-    # 기본 응답
+    # 1. 파일 데이터 읽기
+    audio_bytes = await audio.read()
+    image_bytes = await image.read() if image else None
+
+    # 2. 파이프라인 초기 상태 설정 (사용자 정의 흐름 시작)
+    initial_state = {
+        "incident_id": "incident-from-upload", # 실제 운영 시 UUID 생성 혹은 DB 연동
+        "audio_content": audio_bytes,
+        "image_content": image_bytes
+    }
+    
+    # 3. LangGraph 파이프라인 구동 (분석 -> 텍스트화 -> RAG -> 답변)
+    result = app_pipeline.invoke(initial_state)
+
+    # 4. 결과 매핑 및 반환
     return RAGQueryResponse(
-        action_plan=ActionPlan(steps=["기본 점검 수행"], risk_level="LOW", escalation_required=False),
-        explanation="분석된 정보에 근거한 일반적인 조치입니다.",
-        evidence=[]
+        action_plan=ActionPlan(
+            steps=result.get("final_action_plan", {}).get("steps", []),
+            risk_level=result.get("final_action_plan", {}).get("risk_level", "NORMAL"),
+            escalation_required=result.get("final_action_plan", {}).get("escalation_required", False)
+        ),
+        explanation=result.get("explanation", ""),
+        evidence=result.get("evidence", [])
     )
 
 @router.get("/outputs/{incident_id}")
 async def get_rag_outputs(incident_id: str):
     return {"incident_id": incident_id, "latest_output": "ECU 냉각 상태 점검 필요"}
+
+# --- 이전 버전 (주석 보존: JSON 전용) ---
+# from app.schemas.api_models import RAGQueryRequest
+# @router.post("/query_json", response_model=RAGQueryResponse)
+# async def run_rag_query(request: RAGQueryRequest):
+#     if request.incident_id == "demo-maf-sensor":
+#         return RAGQueryResponse(...)
+#     return RAGQueryResponse(...)
