@@ -27,6 +27,7 @@ public class AuthService {
 
     @Transactional
     public void register(RegisterRequest request) {
+        validateCredentials(request.username(), request.password());
         if (userRepository.existsByUsername(request.username())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 존재하는 사용자명입니다.");
         }
@@ -36,14 +37,33 @@ public class AuthService {
 
     @Transactional
     public LoginResponse login(LoginRequest request) {
+        validateCredentials(request.username(), request.password());
         UserAccount user = userRepository.findByUsername(request.username())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다."));
 
-        if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+        if (!isValidPassword(request.password(), user)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다.");
         }
 
         String token = jwtTokenProvider.createToken(user.getUsername());
         return new LoginResponse(token, "Bearer", jwtTokenProvider.getExpiresInSeconds());
+    }
+
+    private void validateCredentials(String username, String password) {
+        if (username == null || username.isBlank() || password == null || password.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "username, password는 필수입니다.");
+        }
+    }
+
+    private boolean isValidPassword(String rawPassword, UserAccount user) {
+        String savedPassword = user.getPassword();
+        if (savedPassword != null && savedPassword.startsWith("$2")) {
+            return passwordEncoder.matches(rawPassword, savedPassword);
+        }
+        if (rawPassword.equals(savedPassword)) {
+            user.changePassword(passwordEncoder.encode(rawPassword));
+            return true;
+        }
+        return false;
     }
 }
