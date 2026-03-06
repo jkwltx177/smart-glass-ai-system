@@ -512,7 +512,7 @@ VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:08:18', 2442, 88.55, 31.89, 28.71, 13.11, 1.84, 0),
 (1, 'DEV-MAF-01', '2026-03-06 09:08:19', 2493, 88.34, 31.66, 29.32, 13.55, 2.20, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:08:20', 2499, 88.29, 31.74, 28.33, 13.84, 2.18, 0),
 (1, 'DEV-MAF-01', '2026-03-06 09:08:21', 2435, 88.64, 31.81, 28.64, 13.42, 2.15, 0),
@@ -1015,7 +1015,7 @@ VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:16:38', 2456, 89.37, 32.27, 30.91, 14.56, 1.94, 0),
 (1, 'DEV-MAF-01', '2026-03-06 09:16:39', 2509, 89.52, 32.47, 30.66, 14.58, 2.11, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:16:40', 2357, 89.66, 32.37, 31.31, 13.62, 2.02, 0),
 (1, 'DEV-MAF-01', '2026-03-06 09:16:41', 2369, 89.45, 32.45, 31.08, 14.43, 1.96, 0),
@@ -1518,7 +1518,7 @@ VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:24:58', 2392, 90.14, 32.43, 33.99, 16.45, 2.75, 0),
 (1, 'DEV-MAF-01', '2026-03-06 09:24:59', 2387, 90.36, 32.28, 33.78, 15.85, 2.49, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:25:00', 2293, 90.27, 32.24, 34.52, 15.41, 2.48, 0),
 (1, 'DEV-MAF-01', '2026-03-06 09:25:01', 2455, 90.62, 32.42, 33.27, 15.77, 2.13, 0),
@@ -2021,7 +2021,7 @@ VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:33:18', 2193, 91.37, 32.87, 33.27, 17.40, 2.83, 0),
 (1, 'DEV-MAF-01', '2026-03-06 09:33:19', 2384, 91.36, 33.14, 33.49, 17.58, 3.11, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:33:20', 2360, 91.33, 32.83, 33.46, 17.55, 3.18, 1),
 (1, 'DEV-MAF-01', '2026-03-06 09:33:21', 2353, 91.25, 32.70, 32.57, 18.08, 2.87, 1),
@@ -2524,7 +2524,7 @@ VALUES
 (1, 'DEV-MAF-01', '2026-03-06 09:41:38', 2337, 92.49, 33.18, 29.22, 19.55, 3.26, 1),
 (1, 'DEV-MAF-01', '2026-03-06 09:41:39', 2209, 92.46, 33.16, 28.49, 19.39, 3.15, 1);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:00:00', 1760, 74.82, 29.41, 23.47, 3.05, 2.22, 0),
 (2, 'DEV-ECU-02', '2026-03-06 10:00:01', 1844, 74.89, 29.48, 22.77, 3.05, 2.15, 0),
@@ -3027,7 +3027,7 @@ VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:08:18', 1858, 78.54, 29.81, 23.24, 3.03, 2.12, 0),
 (2, 'DEV-ECU-02', '2026-03-06 10:08:19', 1826, 78.55, 29.91, 23.34, 3.15, 2.09, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:08:20', 1837, 78.20, 29.98, 23.12, 3.06, 2.23, 0),
 (2, 'DEV-ECU-02', '2026-03-06 10:08:21', 1866, 78.38, 29.91, 23.23, 3.05, 2.15, 0),
@@ -3530,7 +3530,7 @@ VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:16:38', 1790, 81.83, 30.12, 22.26, 2.96, 2.14, 0),
 (2, 'DEV-ECU-02', '2026-03-06 10:16:39', 1776, 81.56, 30.27, 22.04, 3.17, 2.15, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:16:40', 1821, 81.61, 30.39, 21.79, 3.31, 2.19, 0),
 (2, 'DEV-ECU-02', '2026-03-06 10:16:41', 1769, 81.79, 30.22, 22.17, 3.05, 2.15, 0),
@@ -4033,7 +4033,7 @@ VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:24:58', 1783, 84.48, 30.33, 23.23, 3.17, 2.17, 0),
 (2, 'DEV-ECU-02', '2026-03-06 10:24:59', 1834, 84.76, 30.31, 24.97, 3.08, 2.17, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:25:00', 1835, 84.91, 30.68, 24.04, 3.12, 2.17, 0),
 (2, 'DEV-ECU-02', '2026-03-06 10:25:01', 1799, 84.69, 30.34, 24.60, 3.13, 2.20, 0),
@@ -4536,7 +4536,7 @@ VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:33:18', 1844, 87.81, 30.71, 21.62, 3.10, 2.14, 1),
 (2, 'DEV-ECU-02', '2026-03-06 10:33:19', 1864, 87.80, 30.86, 21.57, 3.00, 2.16, 1);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:33:20', 1838, 87.69, 30.84, 21.57, 2.97, 2.17, 1),
 (2, 'DEV-ECU-02', '2026-03-06 10:33:21', 1855, 87.78, 30.99, 21.60, 3.19, 2.12, 1),
@@ -5039,7 +5039,7 @@ VALUES
 (2, 'DEV-ECU-02', '2026-03-06 10:41:38', 1788, 90.81, 31.26, 24.63, 3.03, 2.17, 1),
 (2, 'DEV-ECU-02', '2026-03-06 10:41:39', 1811, 90.75, 31.32, 24.25, 3.01, 2.10, 1);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (3, 'DEV-IGN-03', '2026-03-06 11:00:00', 1011, 86.52, 30.32, 18.44, 7.91, 2.88, 0),
 (3, 'DEV-IGN-03', '2026-03-06 11:00:01', 1207, 85.83, 30.35, 18.13, 7.48, 3.02, 0),
@@ -5542,7 +5542,7 @@ VALUES
 (3, 'DEV-IGN-03', '2026-03-06 11:08:18', 1082, 86.42, 30.66, 14.70, 9.34, 3.01, 0),
 (3, 'DEV-IGN-03', '2026-03-06 11:08:19', 779, 86.71, 30.61, 14.84, 9.33, 3.16, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (3, 'DEV-IGN-03', '2026-03-06 11:08:20', 1015, 86.72, 30.52, 15.63, 9.25, 2.87, 0),
 (3, 'DEV-IGN-03', '2026-03-06 11:08:21', 1167, 86.70, 30.52, 15.11, 8.79, 3.03, 0),
@@ -6045,7 +6045,7 @@ VALUES
 (3, 'DEV-IGN-03', '2026-03-06 11:16:38', 1312, 87.11, 30.39, 21.25, 10.31, 2.67, 0),
 (3, 'DEV-IGN-03', '2026-03-06 11:16:39', 1219, 87.32, 30.25, 21.36, 9.97, 2.66, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (3, 'DEV-IGN-03', '2026-03-06 11:16:40', 1246, 87.06, 30.46, 20.63, 10.92, 2.69, 0),
 (3, 'DEV-IGN-03', '2026-03-06 11:16:41', 1261, 87.26, 30.52, 21.04, 10.98, 2.87, 0),
@@ -6548,7 +6548,7 @@ VALUES
 (3, 'DEV-IGN-03', '2026-03-06 11:24:58', 858, 87.67, 30.54, 14.38, 12.22, 3.02, 0),
 (3, 'DEV-IGN-03', '2026-03-06 11:24:59', 856, 87.34, 30.69, 13.06, 11.91, 3.03, 0);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (3, 'DEV-IGN-03', '2026-03-06 11:25:00', 1078, 87.50, 30.77, 12.06, 11.49, 2.95, 0),
 (3, 'DEV-IGN-03', '2026-03-06 11:25:01', 1080, 87.49, 30.84, 13.65, 12.65, 3.11, 0),
@@ -7051,7 +7051,7 @@ VALUES
 (3, 'DEV-IGN-03', '2026-03-06 11:33:18', 1565, 88.09, 30.95, 17.63, 13.72, 2.75, 1),
 (3, 'DEV-IGN-03', '2026-03-06 11:33:19', 1510, 88.37, 31.03, 20.00, 13.33, 2.76, 1);
 
-INSERT INTO sensor_timeseries (inspection_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
+INSERT INTO sensor_timeseries (incident_id, device_id, timestamp, engine_rpm, coolant_temp, intake_air_temp, throttle_pos, fuel_trim, maf, failure)
 VALUES
 (3, 'DEV-IGN-03', '2026-03-06 11:33:20', 1514, 88.17, 31.10, 17.44, 12.77, 2.72, 1),
 (3, 'DEV-IGN-03', '2026-03-06 11:33:21', 1317, 88.08, 30.95, 17.33, 13.65, 2.71, 1),
@@ -7560,5 +7560,5 @@ COMMIT;
 SELECT device_id, COUNT(*) AS row_count, MIN(timestamp) AS start_time, MAX(timestamp) AS end_time,
         MIN(failure) AS min_failure, MAX(failure) AS max_failure
 FROM sensor_timeseries
-WHERE inspection_id IN (1,2,3)
+WHERE incident_id IN (1,2,3)
 GROUP BY device_id;
