@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+python-multipart
+pydantic
+sqlalchemy
+langchain
+langgraph
+faiss-cpu
+lightgbm
+xgboost
+transformers
+torch
+pydantic_settings
