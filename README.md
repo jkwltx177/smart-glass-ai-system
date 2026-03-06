@@ -103,3 +103,40 @@ smart-glass-ai-system/
   - **Description**: 설비 장비가 주기적으로 센서(시계열) 데이터 및 로그를 전송하여 고장 확률/RUL 예측 AI 모델 업데이트 및 캐싱에 쓰이는 엔드포인트입니다.
   - **Req (JSON)**: `{"temperature": 85.2, "vibration": 1.2, "pressure": 120, "timestamp": "..."}`
   - **Res**: `{"status": "ok", "recorded": true}`
+
+## 5. 로컬 DB 실행 및 MySQL Workbench 접속
+
+현재 프로젝트는 단일 `docker-compose.yml`에서 전용 MariaDB 컨테이너 `smart-glass-project-db`(호스트 포트 `3380`)를 함께 실행합니다.
+
+1. 전용 DB 컨테이너 실행
+   ```bash
+   cd /Users/bangdawon_skala/workspace/skala-intro/GenerativeAIservice/smart-glass-ai-system
+   docker compose -f docker-compose.yml up -d project-db
+   docker compose -f docker-compose.yml ps
+   ```
+   `smart-glass-project-db`가 `0.0.0.0:3380->3306/tcp`로 보이면 정상입니다.
+
+2. MySQL Workbench 접속 정보
+   - Hostname: `127.0.0.1` (또는 `localhost`)
+   - Port: `3380`
+   - Username (개발): `root`
+   - Password (개발): `mysql_1`
+   - Username (서비스): `sg_app`
+   - Password (서비스): `sg_app_1`
+
+3. DB 확인
+   ```sql
+   SHOW DATABASES;
+   USE smart_glass_dev;
+   SELECT DATABASE();
+   ```
+
+4. 앱 실행 (개발 계정 root)
+   ```bash
+   docker compose --env-file .env -f docker-compose.yml up -d app
+   ```
+
+5. 서비스 계정으로 앱 실행
+   ```bash
+   docker compose --env-file .env.service -f docker-compose.yml up -d app
+   ```

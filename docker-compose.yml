@@ -1,0 +1,58 @@
+# 실행 방법 (단일 compose)
+# 1) DB 실행: docker compose -f docker-compose.yml up -d project-db
+# 2) 앱 실행(개발 root): docker compose --env-file .env -f docker-compose.yml up -d app
+# 3) 앱 실행(서비스 sg_app): docker compose --env-file .env.service -f docker-compose.yml up -d app
+# 4) 상태 확인: docker compose -f docker-compose.yml ps
+# 5) 로그 확인: docker compose -f docker-compose.yml logs -f app
+# 6) 종료: docker compose -f docker-compose.yml down
+
+services:
+  project-db:
+    image: mariadb:11.4
+    container_name: smart-glass-project-db
+    restart: unless-stopped
+    ports:
+      - "3380:3306"
+    environment:
+      - TZ=Asia/Seoul
+      - MARIADB_ROOT_PASSWORD=mysql_1
+      - MARIADB_DATABASE=smart_glass_dev
+      - MARIADB_USER=sg_app
+      - MARIADB_PASSWORD=sg_app_1
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --lower_case_table_names=1
+    volumes:
+      - project_db_data:/var/lib/mysql
+      - ./infrastructure/mariadb/conf.d:/etc/mysql/conf.d:ro
+      - ./infrastructure/mariadb/project-initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-uroot", "-pmysql_1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      project-db:
+        condition: service_healthy
+    ports:
+      - "8008:8008"
+    volumes:
+      - dockervenv:/app/.venv
+      - .:/app # 로컬 프로젝트 디렉토리를 컨테이너 '/app'로 마운트
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DB_HOST=${DB_HOST:-project-db}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_NAME=${DB_NAME:-smart_glass_dev}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-mysql_1}
+
+volumes:
+  dockervenv:
+  project_db_data:
