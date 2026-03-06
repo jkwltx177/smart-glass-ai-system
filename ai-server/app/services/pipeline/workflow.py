@@ -1,57 +1,57 @@
 from langgraph.graph import StateGraph, END
 from .state import AgentState
 
-# 실제 구현 시에는 각 서비스 모듈에서 함수를 가져옵니다.
-# from app.services.speech import stt_service
-# from app.services.vision import vision_service
-# from app.services.prediction import prediction_service
-# from app.services.rag import rag_service
-
-def speech_to_text_node(state: AgentState):
-    # Mock 로직 (실제 서비스 연결 전)
-    return {"transcription": "펌프에서 이상한 소음이 발생하고 진동이 심함"}
-
-def vision_analysis_node(state: AgentState):
-    # Mock 로직
-    return {"vision_results": "펌프 배관 연결부위 미세 누유 및 마찰 흔적 발견"}
-
-def predictive_ai_node(state: AgentState):
-    # Mock 로직 (기존 예측 모델 연결 예정)
-    return {"failure_probability": 0.85, "predicted_rul": 12.5}
-
-def rag_search_node(state: AgentState):
-    # Mock 로직 (VectorDB 검색 연결 예정)
-    return {"rag_context": ["매뉴얼 [PUMP-M-01]: 소음 발생 시 조인트 씰 점검", "유사사례: 24년 1월 누유로 인한 모터 과열 건"]}
-
-def llm_reasoning_node(state: AgentState):
-    # 모든 정보를 취합하여 최종 결과 구성
+def data_ingestion_node(state: AgentState):
+    """사건 ID로부터 관련 자산 및 텔레메트리 데이터를 로드하는 단계"""
+    # 실제로는 DB에서 incident_id로 조회
     return {
-        "final_report": "설비 긴급 점검 및 부품 교체 권고",
-        "risk_level": "HIGH",
-        "steps": [
-            "1. 즉시 펌프 가동 중지",
-            "2. 연결부위 누유 차단 밸브 잠금",
-            "3. 매뉴얼 [PUMP-M-01]에 따라 조인트 씰 교체"
-        ],
-        "escalation_required": True
+        "equipment_id": "EQ-MAF-001",
+        "telemetry_data": {"airflow": "unstable", "fuel_trim": "+18%"}
     }
 
-def create_pipeline():
+def speech_vision_analysis_node(state: AgentState):
+    """음성 및 이미지 동시 분석 (Multi-modal)"""
+    return {
+        "transcription": "엔진 출력이 약함",
+        "vision_analysis": "MAF 센서 주변 먼지 고착 확인"
+    }
+
+def predictive_ai_node(state: AgentState):
+    """RUL 및 고장 확률 예측"""
+    return {"failure_probability": 0.67, "predicted_rul": 180.0}
+
+def rag_knowledge_node(state: AgentState):
+    """KB에서 매뉴얼 및 과거 사례 검색"""
+    return {"rag_context": ["Manual P0101: MAF 센서 청소 절차", "Case: Dirty MAF causes P0101"]}
+
+def reasoning_node(state: AgentState):
+    """최종 조치 방안 및 근거 생성 (LLM)"""
+    return {
+        "final_action_plan": {
+            "steps": ["센서 커넥터 확인", "센서 청소", "흡기 라인 점검"],
+            "risk_level": "MEDIUM",
+            "escalation_required": False
+        },
+        "explanation": "DTC P0101 기반 공기 유량 센서 성능 저하가 의심됩니다.",
+        "evidence": ["Manual P0101 Section 4.2"]
+    }
+
+def create_integrated_pipeline():
     workflow = StateGraph(AgentState)
 
-    workflow.add_node("stt", speech_to_text_node)
-    workflow.add_node("vision", vision_analysis_node)
+    workflow.add_node("ingestion", data_ingestion_node)
+    workflow.add_node("analysis", speech_vision_analysis_node)
     workflow.add_node("prediction", predictive_ai_node)
-    workflow.add_node("rag", rag_search_node)
-    workflow.add_node("reasoning", llm_reasoning_node)
+    workflow.add_node("rag", rag_knowledge_node)
+    workflow.add_node("reasoning", reasoning_node)
 
-    workflow.set_entry_point("stt")
-    workflow.add_edge("stt", "vision")
-    workflow.add_edge("vision", "prediction")
+    workflow.set_entry_point("ingestion")
+    workflow.add_edge("ingestion", "analysis")
+    workflow.add_edge("analysis", "prediction")
     workflow.add_edge("prediction", "rag")
     workflow.add_edge("rag", "reasoning")
     workflow.add_edge("reasoning", END)
 
     return workflow.compile()
 
-app_pipeline = create_pipeline()
+app_pipeline = create_integrated_pipeline()
