@@ -1,9 +1,9 @@
 spring:
   application:
-    name: auth-server
+    name: demo
 
   datasource:
-    url: jdbc:h2:mem:authdb
+    url: jdbc:h2:mem:demo
     driver-class-name: org.h2.Driver
     username: sa
     password: 
@@ -24,7 +24,11 @@ spring:
 server:
   port: 8081
 
+logging:
+  level:
+    org.hibernate.SQL: debug
+
 jwt:
-  # 32-byte Base64 encoded secret key
+  # 32-byte(이상) 키를 Base64 인코딩한 값
   secret: dGhpcy1pcy1hLWRlbW8tamR0LXNlY3JldC1rZXktZm9yLWRldi0wMDEyMw==
   expiration-ms: 3600000
