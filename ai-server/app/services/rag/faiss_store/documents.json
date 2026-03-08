@@ -1,50 +1,176 @@
 [
   {
-    "doc_id": "manual-001",
-    "content": "엔진 냉각수 온도가 105°C 이상이면 즉시 엔진을 정지하고 냉각 계통을 점검한다. 라디에이터 팬 작동 여부, 냉각수 누수, 서모스탯 고착을 확인한다.",
+    "doc_id": "manual-1#chunk-0",
+    "content": "[Manual] MAF Sensor Diagnostic Procedure\nCategory: diagnostic\nSource: OEM Manual\nDTC: P0101\nContent: When DTC P0101 is detected, inspect the mass air flow sensor for dust contamination, oil residue, or signal instability. Check sensor connector pin contact, verify harness locking condition, and inspect the intake duct for unmetered air leakage. If fuel trim is significantly positive and airflow value is unstable, clean the sensor and re-check signal consistency before replacement.",
     "metadata": {
-      "type": "manual",
-      "category": "coolant"
+      "table": "manual_docs",
+      "doc_id": 1,
+      "title": "MAF Sensor Diagnostic Procedure",
+      "category": "diagnostic",
+      "related_dtc_code": "P0101",
+      "created_at": "2026-03-05 13:00:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "manual-1"
     }
   },
   {
-    "doc_id": "manual-002",
-    "content": "연료 트림 값이 ±25% 이상이면 연료 분사 시스템 이상을 의심한다. 인젝터 클리닝, 연료 필터 교체, 연료 압력 레귤레이터를 점검한다.",
+    "doc_id": "manual-2#chunk-0",
+    "content": "[Manual] Intake Air Leak Inspection Guide\nCategory: maintenance\nSource: Internal QA Guide\nDTC: P0101\nContent: For repeated airflow range/performance faults, inspect the intake hose, clamp looseness, and downstream air leak path. Confirm whether ECU-calculated airflow differs from expected engine load. If connector contact is normal and contamination is low, prioritize intake leak inspection.",
     "metadata": {
-      "type": "manual",
-      "category": "fuel_trim"
+      "table": "manual_docs",
+      "doc_id": 2,
+      "title": "Intake Air Leak Inspection Guide",
+      "category": "maintenance",
+      "related_dtc_code": "P0101",
+      "created_at": "2026-03-05 13:10:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "manual-2"
     }
   },
   {
-    "doc_id": "manual-003",
-    "content": "MAF 센서 값이 급격히 변동하면 에어 필터 오염 또는 MAF 센서 자체 고장을 의심한다. 에어 필터를 교체하고, MAF 센서를 클리닝 후 재측정한다.",
+    "doc_id": "manual-3#chunk-0",
+    "content": "[Manual] ECU Processor Fault Initial Check\nCategory: diagnostic\nSource: OEM Manual\nDTC: P0606\nContent: When DTC P0606 occurs, verify ECU power stability, connector seating, and processor fault recurrence. Check whether thermal load, supply voltage instability, or abnormal reset behavior is present. If the fault persists under repeated high temperature operation, consider ECU replacement review.",
     "metadata": {
-      "type": "manual",
-      "category": "maf"
+      "table": "manual_docs",
+      "doc_id": 3,
+      "title": "ECU Processor Fault Initial Check",
+      "category": "diagnostic",
+      "related_dtc_code": "P0606",
+      "created_at": "2026-03-05 13:20:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "manual-3"
     }
   },
   {
-    "doc_id": "case-001",
-    "content": "사례: D3 장비에서 coolant_temp가 3일간 점진적 상승 후 고장 발생. 원인은 냉각 팬 모터 베어링 마모. RUL 예측 모델이 48시간 전 경고 발령. 사전 교체로 비계획 정지 방지 성공.",
+    "doc_id": "manual-4#chunk-0",
+    "content": "[Manual] ECU Thermal Management Inspection Procedure\nCategory: safety\nSource: Internal QA Guide\nDTC: P0606\nContent: For rising ECU temperature conditions, inspect cooling airflow around the ECU housing, connector heat damage, and local thermal concentration. If temperature continues to rise beyond the internal acceptance range, suspend continuous validation and escalate for hardware review.",
     "metadata": {
-      "type": "case",
-      "category": "coolant"
+      "table": "manual_docs",
+      "doc_id": 4,
+      "title": "ECU Thermal Management Inspection Procedure",
+      "category": "safety",
+      "related_dtc_code": "P0606",
+      "created_at": "2026-03-05 13:30:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "manual-4"
     }
   },
   {
-    "doc_id": "case-002",
-    "content": "사례: D7 장비에서 RPM 불안정 + fuel_trim 이상 동시 발생. 원인은 점화 플러그 1번 실린더 실화. 에스컬레이션 기준: 2회 이상 반복 시 본사 품질팀에 보고.",
+    "doc_id": "manual-5#chunk-0",
+    "content": "[Manual] Cylinder Misfire Diagnostic Manual\nCategory: diagnostic\nSource: OEM Manual\nDTC: P0302\nContent: When DTC P0302 is detected, inspect cylinder 2 ignition coil, spark plug condition, and injector firing quality. Review RPM fluctuation and abnormal combustion indicators. Perform coil swap test and verify whether the misfire follows the component.",
     "metadata": {
-      "type": "case",
-      "category": "rpm_fuel"
+      "table": "manual_docs",
+      "doc_id": 5,
+      "title": "Cylinder Misfire Diagnostic Manual",
+      "category": "diagnostic",
+      "related_dtc_code": "P0302",
+      "created_at": "2026-03-05 13:40:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "manual-5"
     }
   },
   {
-    "doc_id": "safety-001",
-    "content": "안전 절차: RUL이 30분 미만으로 예측되면 즉시 작업을 중단하고, 안전 구역으로 대피한다. 설비 잠금(LOTO) 절차를 수행한 후 본사 엔지니어에게 에스컬레이션한다.",
+    "doc_id": "manual-6#chunk-0",
+    "content": "[Manual] Ignition Coil and Spark Plug Inspection Guide\nCategory: maintenance\nSource: Internal QA Guide\nDTC: P0302\nContent: Repeated cylinder 2 misfire may result from ignition coil degradation, spark plug wear, or injector imbalance. Inspect plug electrode wear, secondary ignition leakage, and unstable combustion symptoms before replacing ECU-related control parts.",
     "metadata": {
-      "type": "safety",
-      "category": "emergency"
+      "table": "manual_docs",
+      "doc_id": 6,
+      "title": "Ignition Coil and Spark Plug Inspection Guide",
+      "category": "maintenance",
+      "related_dtc_code": "P0302",
+      "created_at": "2026-03-05 13:50:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "manual-6"
+    }
+  },
+  {
+    "doc_id": "case-1#chunk-0",
+    "content": "[Case] #1 DTC=P0101\nSymptom: Engine response became weak during validation and airflow reading fluctuated abnormally.\nRootCause: MAF sensor contamination caused unstable airflow signal input to ECU.\nActionSteps: 1) Disconnect connector and inspect terminals. 2) Clean MAF sensing element. 3) Recheck airflow signal and fuel trim.\nResultSummary: After sensor cleaning, airflow stabilized and fuel trim moved toward normal range.",
+    "metadata": {
+      "table": "case_db",
+      "case_id": 1,
+      "dtc_code": "P0101",
+      "reference_doc_id": 1,
+      "created_at": "2026-03-05 14:00:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "case-1"
+    }
+  },
+  {
+    "doc_id": "case-2#chunk-0",
+    "content": "[Case] #2 DTC=P0101\nSymptom: Repeated airflow performance fault occurred after maintenance work.\nRootCause: Intake hose leak introduced unmetered air, causing ECU airflow estimation mismatch.\nActionSteps: 1) Inspect intake duct and clamp. 2) Remove leak source. 3) Re-run OBD check and confirm DTC clear.\nResultSummary: Air leak was removed and repeated P0101 event did not recur.",
+    "metadata": {
+      "table": "case_db",
+      "case_id": 2,
+      "dtc_code": "P0101",
+      "reference_doc_id": 2,
+      "created_at": "2026-03-05 14:05:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "case-2"
+    }
+  },
+  {
+    "doc_id": "case-3#chunk-0",
+    "content": "[Case] #3 DTC=P0606\nSymptom: ECU fault triggered repeatedly during thermal validation cycle.\nRootCause: Cooling airflow around ECU housing was insufficient, leading to thermal stress on processor area.\nActionSteps: 1) Check ECU mounting and airflow path. 2) Inspect connector heat marks. 3) Pause test and cool down ECU.\nResultSummary: Temperature rise slowed after airflow correction and no immediate recurrence was observed.",
+    "metadata": {
+      "table": "case_db",
+      "case_id": 3,
+      "dtc_code": "P0606",
+      "reference_doc_id": 4,
+      "created_at": "2026-03-05 14:10:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "case-3"
+    }
+  },
+  {
+    "doc_id": "case-4#chunk-0",
+    "content": "[Case] #4 DTC=P0606\nSymptom: Processor fault persisted under high temperature despite normal external connector fit.\nRootCause: Internal ECU processor instability under sustained thermal load.\nActionSteps: 1) Verify supply voltage. 2) Reproduce under controlled heat condition. 3) Review ECU replacement.\nResultSummary: Fault was isolated to ECU internal condition and replacement recommendation was issued.",
+    "metadata": {
+      "table": "case_db",
+      "case_id": 4,
+      "dtc_code": "P0606",
+      "reference_doc_id": 3,
+      "created_at": "2026-03-05 14:15:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "case-4"
+    }
+  },
+  {
+    "doc_id": "case-5#chunk-0",
+    "content": "[Case] #5 DTC=P0302\nSymptom: Engine vibration increased and combustion became unstable during line inspection.\nRootCause: Cylinder 2 ignition coil degradation caused intermittent misfire.\nActionSteps: 1) Swap ignition coil. 2) Recheck cylinder-specific misfire. 3) Replace faulty coil.\nResultSummary: Misfire moved with the coil during swap test, confirming component issue.",
+    "metadata": {
+      "table": "case_db",
+      "case_id": 5,
+      "dtc_code": "P0302",
+      "reference_doc_id": 5,
+      "created_at": "2026-03-05 14:20:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "case-5"
+    }
+  },
+  {
+    "doc_id": "case-6#chunk-0",
+    "content": "[Case] #6 DTC=P0302\nSymptom: OBD detected cylinder 2 misfire with unstable idle and rough acceleration.\nRootCause: Spark plug wear and partial combustion instability were identified.\nActionSteps: 1) Inspect spark plug electrode. 2) Replace worn plug. 3) Confirm injector balance if symptom remains.\nResultSummary: Replacing the spark plug reduced misfire count and stabilized idle RPM.",
+    "metadata": {
+      "table": "case_db",
+      "case_id": 6,
+      "dtc_code": "P0302",
+      "reference_doc_id": 6,
+      "created_at": "2026-03-05 14:25:00",
+      "chunk_index": 0,
+      "chunk_total": 1,
+      "source_doc_id": "case-6"
     }
   }
 ]

@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     # AI Model Keys
     OPENAI_API_KEY: Optional[str] = None
     QWEN_MODEL_PATH: str = "qwen/Qwen-VL-Chat"
+    AUTH_JWT_SECRET_B64: str = "dGhpcy1pcy1hLWRlbW8tamR0LXNlY3JldC1rZXktZm9yLWRldi0wMDEyMw=="
+    PREDICTION_MODEL_DIR: str = "models/weights"
     
     # Database & Storage
     DATABASE_URL: str = "sqlite:///./sql_app.db"

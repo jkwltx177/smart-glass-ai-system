@@ -55,10 +55,20 @@ pip install -r requirements.txt
 # OpenAI API (Vision LLM용)
 OPENAI_API_KEY=sk-proj-YOUR_KEY_HERE
 
+# MariaDB 접속 정보
+DB_HOST=127.0.0.1
+DB_PORT=3380
+DB_NAME=smart_glass_dev
+DB_USER=sg_app
+DB_PASSWORD=sg_app_1
+
 # Whisper 모델 크기 (선택사항)
 # 옵션: tiny, base, small, medium, large
 # 기본값: base
 WHISPER_MODEL=base
+
+# 예측 모델 가중치 경로 (LGBM/XGB/TCN)
+PREDICTION_MODEL_DIR=models/weights
 
 # 추가 설정
 DEBUG=False

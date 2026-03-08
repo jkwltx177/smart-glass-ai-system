@@ -1,11 +1,11 @@
 package com.example.demo.user;
 
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
-@Getter
 @Entity
-@Table(name = "users")
+@Table(name = "auth_users")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UserAccount {
     @Id
@@ -15,15 +15,31 @@ public class UserAccount {
     @Column(nullable = false, unique = true, length = 50)
     private String username;
 
-    @Column(nullable = false)
-    private String password;
+    @Column(name = "password_hash", nullable = false, length = 255)
+    private String passwordHash;
 
-    public UserAccount(String username, String password) {
+    @Column(name = "company_name", nullable = false, length = 120)
+    private String companyName;
+
+    @Column(name = "company_auth_code_hash", nullable = false, length = 255)
+    private String companyAuthCodeHash;
+
+    public UserAccount(String username, String passwordHash, String companyName, String companyAuthCodeHash) {
         this.username = username;
-        this.password = password;
+        this.passwordHash = passwordHash;
+        this.companyName = companyName;
+        this.companyAuthCodeHash = companyAuthCodeHash;
     }
 
     public void changePassword(String encodedPassword) {
-        this.password = encodedPassword;
+        this.passwordHash = encodedPassword;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
     }
 }

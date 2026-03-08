@@ -236,6 +236,19 @@ CREATE TABLE reports (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =========================================================
+-- 12. auth_users (Java Auth Server)
+-- =========================================================
+CREATE TABLE auth_users (
+    id                      BIGINT        NOT NULL AUTO_INCREMENT,
+    username                VARCHAR(50)   NOT NULL,
+    password_hash           VARCHAR(255)  NOT NULL,
+    company_name            VARCHAR(120)  NOT NULL,
+    company_auth_code_hash  VARCHAR(255)  NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_auth_users_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =========================================================
 -- INDEX
 -- =========================================================
 CREATE INDEX idx_incidents_user_id
