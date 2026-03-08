@@ -2,6 +2,10 @@ from langgraph.graph import StateGraph, END
 from .state import AgentState
 from app.services.speech.stt_service import process_audio_upload
 from app.services.vision.vision_service import process_image_upload
+from app.services.rag.rag_pipeline import RAGInput, init_sample_store, run_rag_pipeline
+
+# RAG 벡터 스토어 전역 초기화
+faiss_store = init_sample_store()
 
 def data_ingestion_node(state: AgentState):
     """Step 1: 데이터 로드 (Mock)"""
@@ -54,25 +58,59 @@ def predictive_ai_node(state: AgentState):
     }
 
 def rag_knowledge_node(state: AgentState):
-    """Step 4: 유사 로그 검색 (Mock)"""
-    return {
-        "rag_context": ["유사사례: 센서 클리닝으로 해결됨"]
-    }
-
-def reasoning_node(state: AgentState):
-    """Step 5: 최종 해결책 생성 (Mock)"""
+    """Step 4: RAG 파이프라인 (검색 및 응답 생성 통합)"""
     transcription = state.get("transcription", "")
     vision_analysis = state.get("vision_analysis", "")
     
-    # 중요: rag.py에서 이 결과를 읽을 수 있도록 구조를 맞춤
+    # AI Payload 조립 (RAGInput 구조에 맞춤)
+    ai_payload = {
+        "device_id": state.get("equipment_id", "Unknown"),
+        "predictive_ai": {
+            "predicted_rul_minutes": state.get("predicted_rul", 180),
+            "failure_probability": 0.67,
+            "anomaly_score": 0.81,
+        },
+        "timeseries_summary": state.get("telemetry_data", {})
+    }
+    
+    rag_input = RAGInput(
+        user_query=transcription,
+        image_description=vision_analysis,
+        ai_payload=ai_payload
+    )
+    
+    # RAG 파이프라인 실행
+    rag_result = run_rag_pipeline(rag_input=rag_input, vector_store=faiss_store, top_k=3)
+    
+    # 문서 내용만 추출
+    context_docs = [doc["content"] for doc in rag_result.retrieved_docs]
+    
+    return {
+        "rag_context": context_docs,
+        "explanation": rag_result.answer,
+        "risk_level": "HIGH" if rag_result.escalation_needed else "MEDIUM",
+        "escalation_required": rag_result.escalation_needed
+    }
+
+def reasoning_node(state: AgentState):
+    """Step 5: 최종 해결책 포맷팅"""
+    # RAG 노드에서 생성된 답변을 프론트엔드 포맷으로 래핑
+    explanation = state.get("explanation", "분석 결과를 생성하지 못했습니다.")
+    risk_level = state.get("risk_level", "NORMAL")
+    escalation = state.get("escalation_required", False)
+    rag_context = state.get("rag_context", [])
+    
+    # GPT 응답에서 조치 절차(Action) 부분을 대략적으로 추출하여 steps로 나눔
+    # (실제로는 LLM 응답을 JSON으로 받아야 더 깔끔하지만, 현재는 텍스트 통짜 응답이므로 분리 생략 가능)
+    
     return {
         "final_action_plan": {
-            "steps": ["1. 커넥터 점검", "2. 센서 클리닝", "3. 재시동"],
-            "risk_level": "MEDIUM",
-            "escalation_required": False
+            "steps": ["상세 조치 내용은 아래 분석 결과를 확인하세요."],
+            "risk_level": risk_level,
+            "escalation_required": escalation
         },
-        "explanation": f"[음성인식]: {transcription}\n[비전분석]: {vision_analysis}\n\n[진단결과]: MAF 센서 오염으로 인한 성능 저하가 의심됩니다.",
-        "evidence": ["Manual P0101 Section 4.2"]
+        "explanation": explanation,
+        "evidence": rag_context
     }
 
 def create_integrated_pipeline():
