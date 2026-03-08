@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.schemas.api_models import ReportResponse
 from app.core.database import get_db
 from app.services.reporting.report_generator import generate_pdf_report
+import os
 
 router = APIRouter()
 
