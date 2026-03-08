@@ -7,6 +7,7 @@ import com.example.demo.user.UserAccount;
 import com.example.demo.user.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -19,16 +20,19 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final JwtTokenProvider jwtTokenProvider;
+    private final JdbcTemplate jdbcTemplate;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final String signupVerificationCode;
 
     public AuthService(
             UserRepository userRepository,
             JwtTokenProvider jwtTokenProvider,
+            JdbcTemplate jdbcTemplate,
             @Value("${auth.signup-verification-code}") String signupVerificationCode
     ) {
         this.userRepository = userRepository;
         this.jwtTokenProvider = jwtTokenProvider;
+        this.jdbcTemplate = jdbcTemplate;
         this.signupVerificationCode = signupVerificationCode;
     }
 
@@ -48,6 +52,7 @@ public class AuthService {
                         encodedCompanyCode
                 )
         );
+        upsertProjectUser(request.username(), encodedPassword);
     }
 
     @Transactional
@@ -93,5 +98,20 @@ public class AuthService {
             return true;
         }
         return false;
+    }
+
+    private void upsertProjectUser(String username, String encodedPassword) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO users (username, password_hash, role, is_active, created_at, updated_at)
+                VALUES (?, ?, 'FIELD_OPERATOR', TRUE, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE
+                    password_hash = VALUES(password_hash),
+                    is_active = TRUE,
+                    updated_at = NOW()
+                """,
+                username,
+                encodedPassword
+        );
     }
 }

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import HistoryView from './HistoryView.vue'
 import LoginView from './LoginView.vue'
+import MobileCaptureView from './MobileCaptureView.vue'
 import MenuView from './MenuView.vue'
 import RagView from './RagView.vue'
 
@@ -25,6 +26,8 @@ const ragMessage = ref('')
 const incidentId = ref<string | null>(null)
 const loginLoading = ref(false)
 const ragLoading = ref(false)
+const isMobileCapture = ref(false)
+const mobileCode = ref('')
 
 const stripMarkdownAsterisks = (text: string): string =>
   String(text ?? '')
@@ -133,6 +136,22 @@ const navigateTo = (view: MenuTarget | Exclude<ViewType, 'login'>) => {
   currentView.value = 'menu'
 }
 
+const onMobileResult = (payload: { incidentId: string; explanation: string; steps: string[] }) => {
+  incidentId.value = payload.incidentId
+  ragMessage.value = `[분석 결과]\n${payload.explanation}\n\n[조치 절차]\n${payload.steps.join('\n') || '없음'}`
+}
+
+const initMode = () => {
+  const params = new URLSearchParams(window.location.search)
+  const mobile = params.get('mobile')
+  const code = params.get('code')
+  if (mobile === '1') {
+    isMobileCapture.value = true
+    mobileCode.value = code || ''
+  }
+}
+initMode()
+
 const sendRagRequest = async (files: { imageFile: File | null; audioFile: File | null; equipmentId: string }) => {
   if (!files.audioFile) {
     ragMessage.value = '음성 파일은 필수입니다.'
@@ -187,7 +206,9 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
 </script>
 
 <template>
-  <LoginView v-if="currentView === 'login'" :login-loading="loginLoading" :message="message" @submit="onSubmit" />
+  <MobileCaptureView v-if="isMobileCapture" :initial-code="mobileCode" />
+
+  <LoginView v-else-if="currentView === 'login'" :login-loading="loginLoading" :message="message" @submit="onSubmit" />
 
   <MenuView v-else-if="currentView === 'menu'" @navigate="navigateTo" @logout="onLogout" />
 
@@ -197,6 +218,7 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
     :rag-message="ragMessage"
     :incident-id="incidentId"
     @submit="sendRagRequest"
+    @mobile-result="onMobileResult"
     @back="navigateTo('menu')"
     @logout="onLogout"
   />

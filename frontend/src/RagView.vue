@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps<{
   ragLoading: boolean
@@ -9,6 +9,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   submit: [{ imageFile: File | null; audioFile: File | null; equipmentId: string }]
+  mobileResult: [{ incidentId: string; explanation: string; steps: string[] }]
   back: []
   logout: []
 }>()
@@ -28,6 +29,20 @@ const newLineOrSite = ref('Unknown Line')
 const newLocation = ref('Unknown Location')
 const reportGenerating = ref(false)
 const previewUrl = ref<string | null>(null)
+const mobileCode = ref('')
+const mobileLink = ref('')
+const mobileConnected = ref(false)
+const mobileDeviceLabel = ref('')
+const mobileLastSeen = ref('')
+const mobileStatusError = ref('')
+const mobileStatusLoading = ref(false)
+const mobilePollingId = ref<number | null>(null)
+const lastMobileResultId = ref('')
+const mobileHost = ref(localStorage.getItem('mobileHostOverride') || '')
+const mobileQrSrc = computed(() => {
+  if (!mobileLink.value) return ''
+  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(mobileLink.value)}`
+})
 
 const isRecording = ref(false)
 let mediaRecorder: MediaRecorder | null = null
@@ -40,6 +55,86 @@ const getAuthHeaders = (): Record<string, string> => {
   const tokenType = localStorage.getItem(TOKEN_TYPE_STORAGE_KEY) ?? 'Bearer'
   if (!accessToken) return {}
   return { Authorization: `${tokenType} ${accessToken}` }
+}
+
+const isLocalHost = () =>
+  ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
+
+const buildMobileOrigin = (): string => {
+  if (!isLocalHost()) {
+    return window.location.origin
+  }
+  const host = mobileHost.value.trim()
+  if (!host) {
+    return ''
+  }
+  return `${window.location.protocol}//${host}`
+}
+
+const rebuildMobileLink = () => {
+  const origin = buildMobileOrigin()
+  if (!origin || !mobileCode.value) {
+    mobileLink.value = ''
+    return
+  }
+  mobileLink.value = `${origin}/?mobile=1&code=${mobileCode.value}`
+}
+
+const startMobileSession = async () => {
+  try {
+    const response = await fetch('/api/mobile/session/start', {
+      method: 'POST',
+      headers: {
+        ...getAuthHeaders(),
+      },
+    })
+    if (!response.ok) {
+      throw new Error(`세션 생성 실패 (${response.status})`)
+    }
+    const data = await response.json()
+    mobileCode.value = String(data?.code ?? '')
+    rebuildMobileLink()
+  } catch (error) {
+    mobileStatusError.value = error instanceof Error ? error.message : '모바일 세션 생성 오류'
+  }
+}
+
+const pollMobileStatus = async () => {
+  if (!mobileCode.value) return
+  mobileStatusLoading.value = true
+  try {
+    const response = await fetch(`/api/mobile/session/${mobileCode.value}`, {
+      headers: {
+        ...getAuthHeaders(),
+      },
+    })
+    if (!response.ok) {
+      throw new Error(`모바일 상태 조회 실패 (${response.status})`)
+    }
+    const data = await response.json()
+    mobileConnected.value = !!data?.connected
+    mobileDeviceLabel.value = String(data?.device_label ?? '')
+    mobileLastSeen.value = String(data?.last_seen ?? '')
+
+    const result = data?.result
+    if (result && typeof result === 'object') {
+      const resultIncidentId = String(result.incident_id ?? '')
+      if (resultIncidentId && lastMobileResultId.value !== resultIncidentId) {
+        lastMobileResultId.value = resultIncidentId
+        const explanation = String(result.explanation ?? '')
+        const steps = Array.isArray(result.steps) ? result.steps.map((s: unknown) => String(s)) : []
+        emit('mobileResult', {
+          incidentId: resultIncidentId,
+          explanation,
+          steps,
+        })
+      }
+    }
+  } catch (error) {
+    mobileStatusError.value = error instanceof Error ? error.message : '모바일 상태 조회 오류'
+  } finally {
+    mobileStatusLoading.value = false
+  }
 }
 
 const loadDevices = async () => {
@@ -204,6 +299,23 @@ const onSubmit = () => {
 
 onMounted(async () => {
   await loadDevices()
+  await startMobileSession()
+  await pollMobileStatus()
+  mobilePollingId.value = window.setInterval(() => {
+    pollMobileStatus()
+  }, 2500)
+})
+
+onUnmounted(() => {
+  if (mobilePollingId.value !== null) {
+    window.clearInterval(mobilePollingId.value)
+    mobilePollingId.value = null
+  }
+})
+
+watch(mobileHost, (value) => {
+  localStorage.setItem('mobileHostOverride', value)
+  rebuildMobileLink()
 })
 </script>
 
@@ -234,6 +346,42 @@ onMounted(async () => {
         </header>
 
         <div class="form-structure">
+          <div class="upload-slot">
+            <div class="slot-header">
+              <label class="slot-label">Mobile Bridge</label>
+              <span class="slot-ext status-required">{{ mobileConnected ? 'Connected' : 'Waiting for mobile' }}</span>
+            </div>
+            <div class="equipment-panel">
+              <div class="mobile-meta-line"><strong>Pair Code:</strong> {{ mobileCode || 'N/A' }}</div>
+              <div class="mobile-meta-line">
+                <strong>Mobile Host(IP:Port):</strong>
+                <input
+                  class="mobile-host-input"
+                  v-model="mobileHost"
+                  type="text"
+                  placeholder="예: 192.168.0.12:5173"
+                />
+              </div>
+              <div class="mobile-meta-line"><strong>Mobile URL:</strong> <a :href="mobileLink" target="_blank">{{ mobileLink }}</a></div>
+              <p v-if="!mobileLink" class="device-error">
+                현재 PC가 localhost로 열려 있습니다. 모바일 접속용 IP:PORT를 입력하세요.
+              </p>
+              <div v-if="mobileQrSrc" class="qr-wrap">
+                <img :src="mobileQrSrc" alt="Mobile URL QR" class="qr-image" />
+                <p class="qr-caption">스마트폰 카메라로 QR을 스캔해 접속</p>
+              </div>
+              <div class="mobile-meta-line"><strong>Device:</strong> {{ mobileDeviceLabel || '-' }}</div>
+              <div class="mobile-meta-line"><strong>Last Seen:</strong> {{ mobileLastSeen || '-' }}</div>
+              <div class="equipment-actions">
+                <button class="action-btn-inline" type="button" @click="startMobileSession">New Code</button>
+                <button class="action-btn-inline" type="button" :disabled="mobileStatusLoading" @click="pollMobileStatus">
+                  {{ mobileStatusLoading ? 'Checking...' : 'Refresh Status' }}
+                </button>
+              </div>
+              <p v-if="mobileStatusError" class="device-error">{{ mobileStatusError }}</p>
+            </div>
+          </div>
+
           <div class="upload-slot">
             <div class="slot-header">
               <label class="slot-label">Equipment ID</label>
@@ -596,6 +744,53 @@ onMounted(async () => {
   color: #fda4af;
   font-size: 12px;
   margin: 0;
+}
+
+.mobile-meta-line {
+  font-size: 12px;
+  color: #cbd5e1;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.mobile-meta-line a {
+  color: #93c5fd;
+}
+
+.mobile-host-input {
+  margin-top: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #f8fafc;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.qr-wrap {
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 10px;
+  background: #0f172a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.qr-image {
+  width: 180px;
+  height: 180px;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.qr-caption {
+  margin: 0;
+  font-size: 12px;
+  color: #cbd5e1;
 }
 
 .drop-placeholder { text-align: center; }
