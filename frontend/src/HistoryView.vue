@@ -21,10 +21,17 @@ async function fetchHistory() {
   loading.value = true
   error.value = null
   try {
-    const response = await fetch('/api/history/')
+    const response = await fetch('/api/incidents/') // Vite proxy will rewrite this to /api/v1/incidents/
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
-    historyLogs.value = data.items ?? []
+    // Map backend incident format to HistoryLog interface
+    historyLogs.value = data.map((item: any) => ({
+      id: item.incident_id,
+      timestamp: new Date(item.created_at).toLocaleString(),
+      type: item.device_type || 'Unknown',
+      status: item.status,
+      latency: '-' // Not provided by real API yet
+    }))
   } catch (e) {
     error.value = e instanceof Error ? e.message : '분석 이력을 불러오지 못했습니다.'
     historyLogs.value = []
