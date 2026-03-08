@@ -34,6 +34,7 @@ let mediaRecorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
 let orientationQuery: MediaQueryList | null = null
 let orientationHandler: (() => void) | null = null
+let captionTimer: number | null = null
 
 const deviceLabel = `Smartphone-${navigator.platform || 'mobile'}`
 const imageFallbackRef = ref<HTMLInputElement | null>(null)
@@ -195,6 +196,10 @@ const onFallbackAudio = (event: Event) => {
 }
 
 const stopSpeech = () => {
+  if (captionTimer !== null) {
+    window.clearTimeout(captionTimer)
+    captionTimer = null
+  }
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel()
   }
@@ -202,12 +207,59 @@ const stopSpeech = () => {
   currentCaption.value = ''
 }
 
-const speakActionSteps = (steps: string[]) => {
-  if (!('speechSynthesis' in window)) {
+const extractActionLines = (steps: string[], explanation: string) => {
+  const normalizedSteps = steps.map((s) => s.trim()).filter((s) => !!s)
+  if (normalizedSteps.length > 0) {
+    return normalizedSteps
+  }
+
+  const banTokens = ['[조치 절차]', '조치 절차', 'Action', 'Description', '상세 조치 내용은 아래 분석 결과를 확인하세요.']
+  const lines = explanation
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[*#`>-]/g, '').trim())
+    .filter((line) => !!line && !banTokens.some((token) => line.includes(token)))
+
+  const unique: string[] = []
+  for (const line of lines) {
+    if (!unique.includes(line)) {
+      unique.push(line)
+    }
+  }
+  return unique.slice(0, 6)
+}
+
+const playCaptionOnly = (lines: string[]) => {
+  if (lines.length === 0) {
     return
   }
-  const queue = steps.map((s) => s.trim()).filter((s) => !!s)
+  let index = 0
+  speaking.value = true
+
+  const next = () => {
+    if (index >= lines.length) {
+      speaking.value = false
+      if (!isLandscape.value) {
+        currentCaption.value = ''
+      }
+      return
+    }
+    currentCaption.value = lines[index] ?? ''
+    index += 1
+    captionTimer = window.setTimeout(next, 2200)
+  }
+  next()
+}
+
+const speakActionSteps = (steps: string[], explanation: string) => {
+  const queue = extractActionLines(steps, explanation)
   if (queue.length === 0) {
+    currentCaption.value = ''
+    speaking.value = false
+    return
+  }
+
+  if (!('speechSynthesis' in window)) {
+    playCaptionOnly(queue)
     return
   }
 
@@ -280,8 +332,16 @@ const submitPayload = async () => {
     }
     const data = await response.json()
     const steps = Array.isArray(data?.action_steps) ? data.action_steps.map((s: unknown) => String(s)) : []
-    message.value = '전송 완료. 조치 절차를 음성으로 안내합니다.'
-    speakActionSteps(steps)
+    const explanation = typeof data?.explanation === 'string' ? data.explanation : ''
+    const lines = extractActionLines(steps, explanation)
+    if (lines.length === 0) {
+      message.value = '전송 완료. 안내할 조치 문장을 찾지 못했습니다.'
+      stopSpeech()
+      currentCaption.value = ''
+    } else {
+      message.value = '전송 완료. 조치 절차를 음성/자막으로 안내합니다.'
+      speakActionSteps(steps, explanation)
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     message.value = `전송 오류: ${errorMessage}`
