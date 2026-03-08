@@ -98,3 +98,15 @@ class MetricsResponse(BaseModel):
 class ReportResponse(BaseModel):
     report_url: str
     summary: str
+
+# --- G. History (분석 이력) ---
+class HistoryLogItem(BaseModel):
+    id: str
+    timestamp: str
+    type: str
+    status: str
+    latency: str
+
+class HistoryListResponse(BaseModel):
+    items: List[HistoryLogItem]
+    total: int
