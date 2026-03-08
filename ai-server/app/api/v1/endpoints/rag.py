@@ -20,7 +20,7 @@ async def run_rag_query_with_files(
     
     # 1. DB에 사건(Incident) 레코드 임시 생성
     new_incident = Incident(
-        device_id="EQ-UNKNOWN",
+        device_id="DEV-MAF-01",  # 외래키 제약조건 위배 방지를 위해 실제 DB에 있는 기본값 사용
         site="Unknown Site",
         line="Unknown Line",
         device_type="Unknown",
