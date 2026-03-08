@@ -121,6 +121,14 @@ curl -X POST "http://localhost:8000/api/v1/incidents/${INCIDENT_ID}/analyze" \
   -F "analysis_type=damage"
 ```
 
+### 7. RAG 질의 (장비 ID 지정)
+```bash
+curl -X POST "http://localhost:8000/api/v1/rag/query" \
+  -F "equipment_id=DEV-MAF-01" \
+  -F "audio=@sample.webm" \
+  -F "image=@equipment.jpg"
+```
+
 ---
 
 ## 🔧 환경 설정
@@ -131,9 +139,19 @@ curl -X POST "http://localhost:8000/api/v1/incidents/${INCIDENT_ID}/analyze" \
 # OpenAI API (Vision LLM)
 OPENAI_API_KEY=sk-proj-YOUR_KEY_HERE
 
+# MariaDB
+DB_HOST=127.0.0.1
+DB_PORT=3380
+DB_NAME=smart_glass_dev
+DB_USER=sg_app
+DB_PASSWORD=sg_app_1
+
 # Whisper 모델 (선택)
 WHISPER_MODEL=base
 # 옵션: tiny, base, small, medium, large
+
+# 예측 모델 경로 (LGBM/XGB/TCN)
+PREDICTION_MODEL_DIR=models/weights
 
 # 디버그
 DEBUG=False

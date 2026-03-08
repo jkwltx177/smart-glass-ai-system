@@ -5,6 +5,7 @@ import com.example.demo.auth.dto.LoginResponse;
 import com.example.demo.auth.dto.RegisterRequest;
 import com.example.demo.user.UserAccount;
 import com.example.demo.user.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,20 +20,34 @@ public class AuthService {
     private final UserRepository userRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    private final String signupVerificationCode;
 
-    public AuthService(UserRepository userRepository, JwtTokenProvider jwtTokenProvider) {
+    public AuthService(
+            UserRepository userRepository,
+            JwtTokenProvider jwtTokenProvider,
+            @Value("${auth.signup-verification-code}") String signupVerificationCode
+    ) {
         this.userRepository = userRepository;
         this.jwtTokenProvider = jwtTokenProvider;
+        this.signupVerificationCode = signupVerificationCode;
     }
 
     @Transactional
     public void register(RegisterRequest request) {
-        validateCredentials(request.username(), request.password());
+        validateRegisterRequest(request);
         if (userRepository.existsByUsername(request.username())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 존재하는 사용자명입니다.");
         }
         String encodedPassword = passwordEncoder.encode(request.password());
-        userRepository.save(new UserAccount(request.username(), encodedPassword));
+        String encodedCompanyCode = passwordEncoder.encode(request.companyAuthCode());
+        userRepository.save(
+                new UserAccount(
+                        request.username(),
+                        encodedPassword,
+                        request.companyName(),
+                        encodedCompanyCode
+                )
+        );
     }
 
     @Transactional
@@ -55,8 +70,21 @@ public class AuthService {
         }
     }
 
+    private void validateRegisterRequest(RegisterRequest request) {
+        validateCredentials(request.username(), request.password());
+        if (request.companyName() == null || request.companyName().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "companyName은 필수입니다.");
+        }
+        if (request.companyAuthCode() == null || request.companyAuthCode().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "companyAuthCode는 필수입니다.");
+        }
+        if (!request.companyAuthCode().equals(signupVerificationCode)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "회사 인증 코드가 올바르지 않습니다.");
+        }
+    }
+
     private boolean isValidPassword(String rawPassword, UserAccount user) {
-        String savedPassword = user.getPassword();
+        String savedPassword = user.getPasswordHash();
         if (savedPassword != null && savedPassword.startsWith("$2")) {
             return passwordEncoder.matches(rawPassword, savedPassword);
         }

@@ -7,14 +7,31 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  submit: [{ id: string; pw: string }]
+  submit: [
+    {
+      mode: 'login' | 'signup'
+      id: string
+      pw: string
+      companyName?: string
+      companyAuthCode?: string
+    },
+  ]
 }>()
 
 const userId = ref('')
 const userPw = ref('')
+const companyName = ref('')
+const companyAuthCode = ref('')
+const mode = ref<'login' | 'signup'>('login')
 
 const onSubmit = () => {
-  emit('submit', { id: userId.value, pw: userPw.value })
+  emit('submit', {
+    mode: mode.value,
+    id: userId.value,
+    pw: userPw.value,
+    companyName: companyName.value,
+    companyAuthCode: companyAuthCode.value,
+  })
 }
 </script>
 
@@ -31,7 +48,14 @@ const onSubmit = () => {
       <div class="auth-module">
         <div class="module-intro">
           <h2 class="module-title">Platform Access</h2>
-          <p class="module-subtitle">서비스 권한 확인을 위해 인증 정보를 입력하십시오.</p>
+          <p class="module-subtitle">
+            {{ mode === 'login' ? '서비스 권한 확인을 위해 인증 정보를 입력하십시오.' : '신규 계정 등록을 위해 회사 인증 정보를 입력하십시오.' }}
+          </p>
+        </div>
+
+        <div class="mode-switch">
+          <button type="button" class="mode-btn" :class="{ active: mode === 'login' }" @click="mode = 'login'">Sign In</button>
+          <button type="button" class="mode-btn" :class="{ active: mode === 'signup' }" @click="mode = 'signup'">Sign Up</button>
         </div>
 
         <form class="auth-form" @submit.prevent="onSubmit">
@@ -53,7 +77,7 @@ const onSubmit = () => {
               <div class="input-field">
                 <div class="field-header">
                   <label for="pw">Credential</label>
-                  <a href="#" class="field-link">Forgot?</a>
+                  <a v-if="mode === 'login'" href="#" class="field-link">Forgot?</a>
                 </div>
                 <input 
                   id="pw" 
@@ -64,12 +88,35 @@ const onSubmit = () => {
                   autocomplete="current-password"
                 />
               </div>
+
+              <div v-if="mode === 'signup'" class="input-field">
+                <label for="company">Company</label>
+                <input
+                  id="company"
+                  v-model="companyName"
+                  type="text"
+                  placeholder="Company Name"
+                  required
+                  autocomplete="organization"
+                />
+              </div>
+
+              <div v-if="mode === 'signup'" class="input-field">
+                <label for="company-code">Company Auth Code</label>
+                <input
+                  id="company-code"
+                  v-model="companyAuthCode"
+                  type="password"
+                  placeholder="Verification Code"
+                  required
+                />
+              </div>
             </div>
 
             <div class="form-actions">
               <button type="submit" class="submit-btn" :disabled="props.loginLoading">
                 <div v-if="props.loginLoading" class="btn-spinner"></div>
-                <span>{{ props.loginLoading ? 'Authenticating' : 'Sign In' }}</span>
+                <span>{{ props.loginLoading ? 'Authenticating' : mode === 'login' ? 'Sign In' : 'Create Account' }}</span>
               </button>
 
               <label class="session-label">
@@ -157,6 +204,32 @@ const onSubmit = () => {
 .module-intro { text-align: center; margin-bottom: 40px; }
 .module-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #f0f6fc; }
 .module-subtitle { font-size: 13px; color: #8b949e; }
+
+.mode-switch {
+  width: 100%;
+  max-width: 320px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.mode-btn {
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #8b949e;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mode-btn.active {
+  border-color: #58a6ff;
+  color: #f0f6fc;
+  background: rgba(88, 166, 255, 0.18);
+}
 
 /* 폼 데이터 영역 */
 .auth-form {

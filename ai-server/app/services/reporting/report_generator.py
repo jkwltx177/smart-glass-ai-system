@@ -17,6 +17,12 @@ def normalize_text(text: str) -> str:
         return ""
     return unicodedata.normalize("NFC", str(text))
 
+
+def strip_markdown_asterisks(text: str) -> str:
+    if not text:
+        return ""
+    return str(text).replace("**", "").replace("__", "")
+
 class ReportPDF(FPDF):
     def __init__(self):
         super().__init__()
@@ -76,6 +82,7 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
     pdf.set_font(base_font, '', 10)
     
     desc = str(incident.description) if incident.description else "상세 설명이 없습니다."
+    desc = strip_markdown_asterisks(desc)
     
     # UTF-8 출력 지원
     pdf.multi_cell(0, 8, txt=normalize_text(desc))

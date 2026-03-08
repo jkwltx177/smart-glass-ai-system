@@ -442,123 +442,14 @@ def run_rag_pipeline(
 
 
 # =========================================================
-# 8. 샘플 문서 등록 유틸 (데모/실습용)
+# 8. Vector Store 초기화
 # =========================================================
 
-SAMPLE_DOCUMENTS = [
-    Document(
-        doc_id="manual-001",
-        content="엔진 냉각수 온도가 105°C 이상이면 즉시 엔진을 정지하고 냉각 계통을 점검한다. "
-                "라디에이터 팬 작동 여부, 냉각수 누수, 서모스탯 고착을 확인한다.",
-        metadata={"type": "manual", "category": "coolant"},
-    ),
-    Document(
-        doc_id="manual-002",
-        content="연료 트림 값이 ±25% 이상이면 연료 분사 시스템 이상을 의심한다. "
-                "인젝터 클리닝, 연료 필터 교체, 연료 압력 레귤레이터를 점검한다.",
-        metadata={"type": "manual", "category": "fuel_trim"},
-    ),
-    Document(
-        doc_id="manual-003",
-        content="MAF 센서 값이 급격히 변동하면 에어 필터 오염 또는 MAF 센서 자체 고장을 의심한다. "
-                "에어 필터를 교체하고, MAF 센서를 클리닝 후 재측정한다.",
-        metadata={"type": "manual", "category": "maf"},
-    ),
-    Document(
-        doc_id="case-001",
-        content="사례: D3 장비에서 coolant_temp가 3일간 점진적 상승 후 고장 발생. "
-                "원인은 냉각 팬 모터 베어링 마모. RUL 예측 모델이 48시간 전 경고 발령. "
-                "사전 교체로 비계획 정지 방지 성공.",
-        metadata={"type": "case", "category": "coolant"},
-    ),
-    Document(
-        doc_id="case-002",
-        content="사례: D7 장비에서 RPM 불안정 + fuel_trim 이상 동시 발생. "
-                "원인은 점화 플러그 1번 실린더 실화. "
-                "에스컬레이션 기준: 2회 이상 반복 시 본사 품질팀에 보고.",
-        metadata={"type": "case", "category": "rpm_fuel"},
-    ),
-    Document(
-        doc_id="safety-001",
-        content="안전 절차: RUL이 30분 미만으로 예측되면 즉시 작업을 중단하고, "
-                "안전 구역으로 대피한다. 설비 잠금(LOTO) 절차를 수행한 후 "
-                "본사 엔지니어에게 에스컬레이션한다.",
-        metadata={"type": "safety", "category": "emergency"},
-    ),
-]
-
-
-def init_sample_store(index_dir: str = str(FAISS_INDEX_DIR)) -> FAISSStore:
+def init_vector_store(index_dir: str = str(FAISS_INDEX_DIR)) -> FAISSStore:
     """
-    샘플 문서로 FAISS 인덱스를 초기화한다. (데모/실습용)
-    이미 저장된 인덱스가 있으면 로드한다.
-
-    Args:
-        index_dir: FAISS 인덱스 저장 디렉토리
-
-    Returns:
-        초기화된 FAISSStore
+    기존 FAISS 인덱스를 로드한다.
+    인덱스가 아직 없으면 빈 저장소를 반환한다.
     """
     store = FAISSStore(index_dir=index_dir)
-
-    if store.load():
-        print(f"기존 FAISS 인덱스 로드 완료: {store.total_docs}개 문서")
-        return store
-
-    print("샘플 문서로 FAISS 인덱스를 새로 생성한다...")
-    count = store.add_documents(SAMPLE_DOCUMENTS)
-    store.save()
-    print(f"FAISS 인덱스 생성 완료: {count}개 문서 등록")
+    store.load()
     return store
-
-
-# =========================================================
-# 9. CLI 실행 예시
-# =========================================================
-
-if __name__ == "__main__":
-    # ai_pipeline의 prepare_ai_response_payload 출력 예시
-    sample_ai_payload = {
-        "device_id": "D1",
-        "predictive_ai": {
-            "predicted_rul_minutes": 69,
-            "failure_probability": 0.63,
-            "anomaly_score": 0.81,
-        },
-        "timeseries_summary": {
-            "coolant_temp_trend": "rising",
-            "intake_air_temp_trend": "stable",
-            "maf_trend": "stable",
-            "fuel_trim_trend": "stable",
-            "rpm_state": "stable",
-            "throttle_state": "stable",
-        },
-        "recent_error_logs": [
-            {"timestamp": 2488, "error_code": "E1023", "message": "Repeated sensor mismatch"},
-        ],
-    }
-
-    # RAG 입력 구성
-    rag_input = RAGInput(
-        user_query="엔진 냉각수 온도가 계속 올라가고 있어. 원인이 뭐야? 어떻게 조치해야 해?",
-        image_description="엔진 베이 사진: 냉각수 호스 연결부에 미세 누수 흔적, 라디에이터 팬 정상 회전 중",
-        ai_payload=sample_ai_payload,
-    )
-
-    print("=== RAG Input ===")
-    print(json.dumps(rag_input.to_dict(), ensure_ascii=False, indent=2))
-
-    # FAISS 인덱스 초기화 (샘플 문서)
-    print("\n=== Initializing Vector Store ===")
-    store = init_sample_store()
-
-    # RAG 파이프라인 실행
-    print("\n=== Running RAG Pipeline ===")
-    result = run_rag_pipeline(
-        rag_input=rag_input,
-        vector_store=store,
-        top_k=3,
-    )
-
-    print("\n=== RAG Result ===")
-    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))

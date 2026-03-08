@@ -3,10 +3,10 @@ spring:
     name: demo
 
   datasource:
-    url: jdbc:h2:mem:demo
-    driver-class-name: org.h2.Driver
-    username: sa
-    password: 
+    url: ${DB_URL:jdbc:mariadb://127.0.0.1:3380/smart_glass_dev}
+    driver-class-name: org.mariadb.jdbc.Driver
+    username: ${DB_USER:sg_app}
+    password: ${DB_PASSWORD:sg_app_1}
 
   jpa:
     open-in-view: false
@@ -15,11 +15,6 @@ spring:
     properties:
       hibernate:
         format_sql: true
-
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
 
 server:
   port: 8081
@@ -32,3 +27,6 @@ jwt:
   # 32-byte(이상) 키를 Base64 인코딩한 값
   secret: dGhpcy1pcy1hLWRlbW8tamR0LXNlY3JldC1rZXktZm9yLWRldi0wMDEyMw==
   expiration-ms: 3600000
+
+auth:
+  signup-verification-code: ${AUTH_SIGNUP_VERIFICATION_CODE:SG-DEMO-CODE-2026}

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -111,3 +111,75 @@ class HistoryLogItem(BaseModel):
 class HistoryListResponse(BaseModel):
     items: List[HistoryLogItem]
     total: int
+
+
+# --- H. Equipment Telemetry ---
+class TelemetryIngestRequest(BaseModel):
+    incident_id: Optional[int] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    engine_rpm: Optional[int] = None
+    coolant_temp: Optional[float] = None
+    intake_air_temp: Optional[float] = None
+    throttle_pos: Optional[float] = None
+    fuel_trim: Optional[float] = None
+    maf: Optional[float] = None
+    failure: bool = False
+
+    @model_validator(mode="after")
+    def validate_sensor_payload(self):
+        sensor_values = [
+            self.engine_rpm,
+            self.coolant_temp,
+            self.intake_air_temp,
+            self.throttle_pos,
+            self.fuel_trim,
+            self.maf,
+        ]
+        if all(v is None for v in sensor_values):
+            raise ValueError("At least one sensor value is required")
+        return self
+
+
+class TelemetryIngestResponse(BaseModel):
+    status: str
+    recorded: bool
+    ts_id: int
+    device_id: str
+    incident_id: int
+    timestamp: datetime
+
+
+# --- I. Integrated Diagnostic ---
+class DiagnosticActionPlan(BaseModel):
+    steps: List[str]
+    risk_level: str
+    escalation_required: bool
+
+
+class DiagnosticPredictive(BaseModel):
+    predicted_rul_minutes: float
+    failure_probability: float
+    anomaly_score: float
+    model: Optional[str] = None
+
+
+class DiagnosticReferenceDoc(BaseModel):
+    doc_id: str
+    content: str
+    score: Optional[float] = None
+    metadata: Dict[str, Any] = {}
+
+
+class DiagnosticResponse(BaseModel):
+    status: str
+    incident_id: str
+    equipment_id: str
+    transcription: str
+    vision_analysis: str
+    predictive_ai: DiagnosticPredictive
+    action_plan: DiagnosticActionPlan
+    answer: str
+    confidence: float
+    reference_docs: List[DiagnosticReferenceDoc]
+    pipeline_fallbacks: List[str]
+    generated_at: datetime = Field(default_factory=datetime.utcnow)

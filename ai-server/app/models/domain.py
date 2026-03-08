@@ -80,3 +80,18 @@ class ErrorLog(Base):
     ecu_module = Column(String(100))
     error_severity = Column(String(20))
     raw_message = Column(Text)
+
+class SensorTimeseries(Base):
+    __tablename__ = "sensor_timeseries"
+
+    ts_id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    incident_id = Column(BigInteger, nullable=False)
+    device_id = Column(String(30), index=True, nullable=False)
+    timestamp = Column(DateTime, index=True, nullable=False)
+    engine_rpm = Column(Integer)
+    coolant_temp = Column(Numeric(5, 2))
+    intake_air_temp = Column(Numeric(5, 2))
+    throttle_pos = Column(Numeric(5, 2))
+    fuel_trim = Column(Numeric(5, 2))
+    maf = Column(Numeric(6, 2))
+    failure = Column(Boolean, default=False, nullable=False)
