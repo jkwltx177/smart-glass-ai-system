@@ -1,4 +1,5 @@
 import os
+import unicodedata
 from datetime import datetime
 from fpdf import FPDF
 from sqlalchemy.orm import Session
@@ -10,11 +11,23 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_PATH = os.path.join(CURRENT_DIR, "NanumGothic.ttf")
 FONT_BOLD_PATH = os.path.join(CURRENT_DIR, "NanumGothicBold.ttf")
 
+def normalize_text(text: str) -> str:
+    """macOS의 NFD(자소 분리) 한글을 Windows/Linux에서 쓰는 NFC(자소 결합) 형태로 변환"""
+    if not text:
+        return ""
+    return unicodedata.normalize("NFC", str(text))
+
 class ReportPDF(FPDF):
-    def header(self):
-        # 폰트 등록
+    def __init__(self):
+        super().__init__()
+        # 폰트를 인스턴스 생성 시 한 번만 등록
+        if os.path.exists(FONT_PATH):
+            self.add_font('NanumGothic', '', FONT_PATH)
         if os.path.exists(FONT_BOLD_PATH):
             self.add_font('NanumGothic', 'B', FONT_BOLD_PATH)
+
+    def header(self):
+        if os.path.exists(FONT_BOLD_PATH):
             self.set_font('NanumGothic', 'B', 15)
         else:
             self.set_font('Arial', 'B', 15)
@@ -24,7 +37,6 @@ class ReportPDF(FPDF):
     def footer(self):
         self.set_y(-15)
         if os.path.exists(FONT_PATH):
-            self.add_font('NanumGothic', '', FONT_PATH)
             self.set_font('NanumGothic', '', 8)
         else:
             self.set_font('Arial', 'I', 8)
@@ -43,13 +55,7 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
     pdf = ReportPDF()
     pdf.add_page()
     
-    # 폰트 설정
-    if os.path.exists(FONT_PATH):
-        pdf.add_font('NanumGothic', '', FONT_PATH)
-        pdf.add_font('NanumGothic', 'B', FONT_BOLD_PATH)
-        base_font = 'NanumGothic'
-    else:
-        base_font = 'Arial'
+    base_font = 'NanumGothic' if os.path.exists(FONT_PATH) else 'Arial'
 
     pdf.set_font(base_font, size=12)
 
@@ -57,11 +63,11 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
     pdf.set_font(base_font, 'B', 12)
     pdf.cell(200, 10, txt="1. 사건 기본 정보 (Incident Information)", ln=1)
     pdf.set_font(base_font, '', 10)
-    pdf.cell(200, 8, txt=f"사건 번호 (ID): {incident.incident_id}", ln=1)
-    pdf.cell(200, 8, txt=f"장비 식별자 (Device ID): {incident.device_id}", ln=1)
-    pdf.cell(200, 8, txt=f"발생 위치: {incident.site} | 라인: {incident.line}", ln=1)
-    pdf.cell(200, 8, txt=f"생성 일시: {incident.created_at}", ln=1)
-    pdf.cell(200, 8, txt=f"상태: {incident.status} | 심각도: {incident.severity}", ln=1)
+    pdf.cell(200, 8, txt=normalize_text(f"사건 번호 (ID): {incident.incident_id}"), ln=1)
+    pdf.cell(200, 8, txt=normalize_text(f"장비 식별자 (Device ID): {incident.device_id}"), ln=1)
+    pdf.cell(200, 8, txt=normalize_text(f"발생 위치: {incident.site} | 라인: {incident.line}"), ln=1)
+    pdf.cell(200, 8, txt=normalize_text(f"생성 일시: {incident.created_at}"), ln=1)
+    pdf.cell(200, 8, txt=normalize_text(f"상태: {incident.status} | 심각도: {incident.severity}"), ln=1)
     pdf.ln(5)
 
     # Details
@@ -72,7 +78,7 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
     desc = str(incident.description) if incident.description else "상세 설명이 없습니다."
     
     # UTF-8 출력 지원
-    pdf.multi_cell(0, 8, txt=desc)
+    pdf.multi_cell(0, 8, txt=normalize_text(desc))
     pdf.ln(5)
 
     # Assets Summary
@@ -81,9 +87,9 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
     pdf.set_font(base_font, '', 10)
     if assets:
         for asset in assets:
-            pdf.cell(200, 8, txt=f"- [{asset.asset_type}] {asset.file_name} ({asset.file_size} bytes)", ln=1)
+            pdf.cell(200, 8, txt=normalize_text(f"- [{asset.asset_type}] {asset.file_name} ({asset.file_size} bytes)"), ln=1)
     else:
-        pdf.cell(200, 8, txt="첨부된 파일이 없습니다.", ln=1)
+        pdf.cell(200, 8, txt=normalize_text("첨부된 파일이 없습니다."), ln=1)
 
     # Save PDF
     os.makedirs(settings.REPORT_OUTPUT_DIR, exist_ok=True)

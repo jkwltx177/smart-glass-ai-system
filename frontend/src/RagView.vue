@@ -16,13 +16,14 @@ const emit = defineEmits<{
 const selectedImage = ref<File | null>(null)
 const selectedAudio = ref<File | null>(null)
 const reportGenerating = ref(false)
+const previewUrl = ref<string | null>(null)
 
 const isRecording = ref(false)
 let mediaRecorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
 
-const downloadReport = async () => {
-  if (!props.incidentId) return
+const generateReport = async () => {
+  if (!props.incidentId) return null
   reportGenerating.value = true
   try {
     const response = await fetch(`/api/report/quality?incident_id=${props.incidentId}`, {
@@ -30,13 +31,31 @@ const downloadReport = async () => {
     })
     if (!response.ok) throw new Error('Failed to generate report')
     const data = await response.json()
-    if (data.report_url) {
-      window.open(data.report_url, '_blank')
-    }
+    return data.report_url
   } catch (e) {
     alert('보고서 생성 중 오류가 발생했습니다.')
+    return null
   } finally {
     reportGenerating.value = false
+  }
+}
+
+const downloadReport = async () => {
+  const url = await generateReport()
+  if (url) {
+    window.open(url, '_blank')
+  }
+}
+
+const previewReport = async () => {
+  if (previewUrl.value) {
+    // If already showing, close preview
+    previewUrl.value = null
+    return
+  }
+  const url = await generateReport()
+  if (url) {
+    previewUrl.value = url
   }
 }
 
@@ -168,18 +187,31 @@ const onSubmit = () => {
               <div class="report-actions">
                 <button 
                   v-if="props.incidentId" 
+                  @click="previewReport" 
+                  class="action-btn" 
+                  :disabled="reportGenerating"
+                >
+                  <span v-if="reportGenerating" class="spinner-small"></span>
+                  {{ previewUrl ? 'Hide Preview' : '👁️ Preview PDF' }}
+                </button>
+                <button 
+                  v-if="props.incidentId" 
                   @click="downloadReport" 
                   class="action-btn" 
                   :disabled="reportGenerating"
                 >
                   <span v-if="reportGenerating" class="spinner-small"></span>
-                  {{ reportGenerating ? 'Generating...' : '📄 Download PDF' }}
+                  📄 Download
                 </button>
                 <span class="timestamp">2026-03-06 | Admin-01</span>
               </div>
             </div>
             <div class="report-body">
               {{ props.ragMessage }}
+            </div>
+            
+            <div v-if="previewUrl" class="pdf-preview-container">
+              <iframe :src="previewUrl" class="pdf-iframe"></iframe>
             </div>
           </div>
         </transition>
@@ -388,6 +420,22 @@ const onSubmit = () => {
   font-size: 15px; line-height: 1.8; color: #cbd5e1;
   background: #0a0c10; padding: 24px; border-radius: 2px;
   white-space: pre-wrap; /* 이 부분을 추가하여 줄바꿈을 유지합니다 */
+}
+
+.pdf-preview-container {
+  margin-top: 24px;
+  width: 100%;
+  height: 600px;
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: white;
+}
+
+.pdf-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
 }
 
 /* Utilities */
