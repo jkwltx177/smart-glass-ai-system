@@ -1,4 +1,5 @@
-from fastapi import APIRouter, UploadFile, File, Optional
+from fastapi import APIRouter, UploadFile, File
+from typing import Optional
 from app.schemas.api_models import RAGQueryResponse, ActionPlan
 from app.services.pipeline.workflow import app_pipeline
 
@@ -19,7 +20,11 @@ async def run_rag_query_with_files(
     initial_state = {
         "incident_id": "test-incident-123",
         "audio_content": audio_bytes,
-        "image_content": image_bytes
+        "image_content": image_bytes,
+        "assets": [
+            {"type": "audio", "filename": audio.filename if audio else "audio.webm"},
+            {"type": "image", "filename": image.filename if image else "image.jpg"}
+        ]
     }
     
     # 3. 파이프라인 구동 (안전을 위해 try-except 권장되나 Mock 상태이므로 직접 호출)
