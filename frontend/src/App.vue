@@ -35,6 +35,17 @@ const stripMarkdownAsterisks = (text: string): string =>
     .replace(/__/g, '')
     .replace(/\* /g, '')
 
+const normalizeActionSteps = (steps: unknown, explanation: string): string[] => {
+  if (!Array.isArray(steps)) return []
+  const placeholder = '상세 조치 내용은 아래 분석 결과를 확인하세요.'
+  const cleaned = steps
+    .map((s) => stripMarkdownAsterisks(String(s ?? '')).trim())
+    .filter((s) => !!s)
+    .filter((s) => s !== placeholder)
+    .filter((s) => !explanation.includes(s))
+  return Array.from(new Set(cleaned))
+}
+
 type AuthSubmitPayload = {
   mode: 'login' | 'signup'
   id: string
@@ -138,7 +149,11 @@ const navigateTo = (view: MenuTarget | Exclude<ViewType, 'login'>) => {
 
 const onMobileResult = (payload: { incidentId: string; explanation: string; steps: string[] }) => {
   incidentId.value = payload.incidentId
-  ragMessage.value = `[분석 결과]\n${payload.explanation}\n\n[조치 절차]\n${payload.steps.join('\n') || '없음'}`
+  const cleanExplanation = stripMarkdownAsterisks(payload.explanation ?? '')
+  const cleanSteps = normalizeActionSteps(payload.steps, cleanExplanation)
+  ragMessage.value = cleanSteps.length > 0
+    ? `[분석 결과]\n${cleanExplanation}\n\n[조치 절차]\n${cleanSteps.join('\n')}`
+    : `[분석 결과]\n${cleanExplanation}`
 }
 
 const initMode = () => {
@@ -190,10 +205,10 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
 
     const data = await response.json()
     const cleanExplanation = stripMarkdownAsterisks(data.explanation ?? '')
-    const cleanSteps = Array.isArray(data.action_plan?.steps)
-      ? data.action_plan.steps.map((s: string) => stripMarkdownAsterisks(s))
-      : []
-    ragMessage.value = `[분석 결과]\n${cleanExplanation}\n\n[조치 절차]\n${cleanSteps.join('\n') || '없음'}`
+    const cleanSteps = normalizeActionSteps(data.action_plan?.steps, cleanExplanation)
+    ragMessage.value = cleanSteps.length > 0
+      ? `[분석 결과]\n${cleanExplanation}\n\n[조치 절차]\n${cleanSteps.join('\n')}`
+      : `[분석 결과]\n${cleanExplanation}`
     incidentId.value = data.incident_id || null
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'

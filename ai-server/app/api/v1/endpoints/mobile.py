@@ -37,6 +37,22 @@ def _strip_markdown_asterisks(text: str) -> str:
     )
 
 
+def _normalize_action_steps(steps: list, explanation: str) -> list[str]:
+    placeholder = "상세 조치 내용은 아래 분석 결과를 확인하세요."
+    cleaned = []
+    for step in steps:
+        s = _strip_markdown_asterisks(step).strip()
+        if not s:
+            continue
+        if s == placeholder:
+            continue
+        if explanation and s in explanation:
+            continue
+        if s not in cleaned:
+            cleaned.append(s)
+    return cleaned
+
+
 def _new_session_code() -> str:
     return secrets.token_hex(3).upper()
 
@@ -214,10 +230,10 @@ async def submit_mobile_payload(
         result = app_pipeline.invoke(initial_state)
         final_plan_data = result.get("final_action_plan", {}) or {}
         clean_explanation = _strip_markdown_asterisks(result.get("explanation", "결과 분석 중입니다."))
-        clean_steps = [
-            _strip_markdown_asterisks(step)
-            for step in final_plan_data.get("steps", ["기본 점검 수행"])
-        ]
+        clean_steps = _normalize_action_steps(
+            list(final_plan_data.get("steps", ["기본 점검 수행"])),
+            clean_explanation,
+        )
 
         incident.description = (
             "[분석 결과]\n"
@@ -255,4 +271,6 @@ async def submit_mobile_payload(
         "code": code,
         "incident_id": str(incident.incident_id),
         "message": "Submitted and processed",
+        "action_steps": summary.get("steps", []),
+        "explanation": summary.get("explanation", ""),
     }

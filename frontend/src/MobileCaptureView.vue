@@ -8,6 +8,9 @@ const props = defineProps<{
 const code = ref(props.initialCode || '')
 const equipmentId = ref('DEV-MAF-01')
 const message = ref('')
+const currentCaption = ref('')
+const speaking = ref(false)
+const isLandscape = ref(window.matchMedia('(orientation: landscape)').matches)
 
 const connecting = ref(false)
 const connected = ref(false)
@@ -29,6 +32,8 @@ const recordedAudioFile = ref<File | null>(null)
 let audioStream: MediaStream | null = null
 let mediaRecorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
+let orientationQuery: MediaQueryList | null = null
+let orientationHandler: (() => void) | null = null
 
 const deviceLabel = `Smartphone-${navigator.platform || 'mobile'}`
 const imageFallbackRef = ref<HTMLInputElement | null>(null)
@@ -189,6 +194,62 @@ const onFallbackAudio = (event: Event) => {
   recordedAudioFile.value = file
 }
 
+const stopSpeech = () => {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel()
+  }
+  speaking.value = false
+  currentCaption.value = ''
+}
+
+const speakActionSteps = (steps: string[]) => {
+  if (!('speechSynthesis' in window)) {
+    return
+  }
+  const queue = steps.map((s) => s.trim()).filter((s) => !!s)
+  if (queue.length === 0) {
+    return
+  }
+
+  stopSpeech()
+  let index = 0
+
+  const speakNext = () => {
+    if (index >= queue.length) {
+      speaking.value = false
+      if (!isLandscape.value) {
+        currentCaption.value = ''
+      }
+      return
+    }
+
+    const line = queue[index] ?? ''
+    if (!line) {
+      index += 1
+      speakNext()
+      return
+    }
+    currentCaption.value = line
+    speaking.value = true
+
+    const utterance = new SpeechSynthesisUtterance(line)
+    utterance.lang = 'ko-KR'
+    utterance.rate = 1.0
+    utterance.pitch = 1.0
+    utterance.onend = () => {
+      index += 1
+      speakNext()
+    }
+    utterance.onerror = () => {
+      index += 1
+      speakNext()
+    }
+    window.speechSynthesis.speak(utterance)
+  }
+
+  speakNext()
+}
+
 const submitPayload = async () => {
   if (!connected.value) {
     message.value = '먼저 페어링 연결을 완료해 주세요.'
@@ -217,7 +278,10 @@ const submitPayload = async () => {
     if (!response.ok) {
       throw new Error(`전송 실패 (${response.status})`)
     }
-    message.value = '전송 완료. 작업자 화면에서 결과를 확인하세요.'
+    const data = await response.json()
+    const steps = Array.isArray(data?.action_steps) ? data.action_steps.map((s: unknown) => String(s)) : []
+    message.value = '전송 완료. 조치 절차를 음성으로 안내합니다.'
+    speakActionSteps(steps)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     message.value = `전송 오류: ${errorMessage}`
@@ -227,18 +291,41 @@ const submitPayload = async () => {
 }
 
 onMounted(async () => {
+  orientationQuery = window.matchMedia('(orientation: landscape)')
+  orientationHandler = () => {
+    isLandscape.value = orientationQuery ? orientationQuery.matches : false
+    if (!isLandscape.value && !speaking.value) {
+      currentCaption.value = ''
+    }
+  }
+  if (orientationQuery.addEventListener && orientationHandler) {
+    orientationQuery.addEventListener('change', orientationHandler)
+  } else {
+    orientationQuery.addListener(orientationHandler as EventListener)
+  }
+
   if (code.value.trim()) {
     await connectSession()
   }
   await startCamera()
   await initAudio()
+
+  orientationHandler()
 })
 
 onUnmounted(() => {
+  stopSpeech()
   stopCamera()
   if (audioStream) {
     audioStream.getTracks().forEach((t) => t.stop())
     audioStream = null
+  }
+  if (orientationQuery) {
+    if (orientationQuery.removeEventListener && orientationHandler) {
+      orientationQuery.removeEventListener('change', orientationHandler)
+    } else {
+      orientationQuery.removeListener(orientationHandler as EventListener)
+    }
   }
 })
 </script>
@@ -268,7 +355,8 @@ onUnmounted(() => {
         <section class="capture-box camera-main">
           <h2>Camera</h2>
           <video v-if="supportsRealtimeMedia" ref="videoRef" class="camera" playsinline muted autoplay></video>
-          <div v-else class="fallback-box">
+          <div v-if="isLandscape && currentCaption" class="caption-line">{{ currentCaption }}</div>
+          <div v-if="!supportsRealtimeMedia" class="fallback-box">
             <button class="btn" @click="imageFallbackRef?.click()">Open Camera / Choose Image</button>
             <input ref="imageFallbackRef" type="file" accept="image/*" capture="environment" @change="onFallbackImage" />
           </div>
@@ -380,6 +468,7 @@ input {
 
 .camera-main {
   min-height: 260px;
+  position: relative;
 }
 
 .capture-box h2 {
@@ -403,6 +492,22 @@ input {
   border-radius: 8px;
   background: #020617;
   object-fit: cover;
+}
+
+.caption-line {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 18px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .preview {
