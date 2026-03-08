@@ -4,7 +4,7 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.api.v1.endpoints import incidents, kb, rag, predictive, aiops, reporting, history, equipment, analyze
+from app.api.v1.endpoints import incidents, kb, rag, predictive, aiops, reporting, history, equipment, analyze, mobile
 import os
 
 app = FastAPI(
@@ -35,6 +35,7 @@ app.include_router(aiops.router, prefix="/api/v1/aiops", tags=["E. AIOps"])
 app.include_router(reporting.router, prefix="/api/v1/report", tags=["F. Reporting"])
 app.include_router(history.router, prefix="/api/v1/history", tags=["G. History"])
 app.include_router(equipment.router, prefix="/api/v1/equipment", tags=["H. Equipment Telemetry"])
+app.include_router(mobile.router, prefix="/api/v1/mobile", tags=["I. Mobile Bridge"])
 
 @app.get("/health")
 def health_check():
