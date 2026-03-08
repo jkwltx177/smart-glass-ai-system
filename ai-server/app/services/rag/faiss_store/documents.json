@@ -1,0 +1,50 @@
+[
+  {
+    "doc_id": "manual-001",
+    "content": "엔진 냉각수 온도가 105°C 이상이면 즉시 엔진을 정지하고 냉각 계통을 점검한다. 라디에이터 팬 작동 여부, 냉각수 누수, 서모스탯 고착을 확인한다.",
+    "metadata": {
+      "type": "manual",
+      "category": "coolant"
+    }
+  },
+  {
+    "doc_id": "manual-002",
+    "content": "연료 트림 값이 ±25% 이상이면 연료 분사 시스템 이상을 의심한다. 인젝터 클리닝, 연료 필터 교체, 연료 압력 레귤레이터를 점검한다.",
+    "metadata": {
+      "type": "manual",
+      "category": "fuel_trim"
+    }
+  },
+  {
+    "doc_id": "manual-003",
+    "content": "MAF 센서 값이 급격히 변동하면 에어 필터 오염 또는 MAF 센서 자체 고장을 의심한다. 에어 필터를 교체하고, MAF 센서를 클리닝 후 재측정한다.",
+    "metadata": {
+      "type": "manual",
+      "category": "maf"
+    }
+  },
+  {
+    "doc_id": "case-001",
+    "content": "사례: D3 장비에서 coolant_temp가 3일간 점진적 상승 후 고장 발생. 원인은 냉각 팬 모터 베어링 마모. RUL 예측 모델이 48시간 전 경고 발령. 사전 교체로 비계획 정지 방지 성공.",
+    "metadata": {
+      "type": "case",
+      "category": "coolant"
+    }
+  },
+  {
+    "doc_id": "case-002",
+    "content": "사례: D7 장비에서 RPM 불안정 + fuel_trim 이상 동시 발생. 원인은 점화 플러그 1번 실린더 실화. 에스컬레이션 기준: 2회 이상 반복 시 본사 품질팀에 보고.",
+    "metadata": {
+      "type": "case",
+      "category": "rpm_fuel"
+    }
+  },
+  {
+    "doc_id": "safety-001",
+    "content": "안전 절차: RUL이 30분 미만으로 예측되면 즉시 작업을 중단하고, 안전 구역으로 대피한다. 설비 잠금(LOTO) 절차를 수행한 후 본사 엔지니어에게 에스컬레이션한다.",
+    "metadata": {
+      "type": "safety",
+      "category": "emergency"
+    }
+  }
+]

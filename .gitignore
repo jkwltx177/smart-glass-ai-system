@@ -11,3 +11,5 @@ frontend/dist/
 infrastructure/vector-db/*.index
 infrastructure/vector-db/*.pkl
 ai-server/.env
+ai-server/ai
+ai-server/storage/

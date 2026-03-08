@@ -22,6 +22,11 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '/api/v1')
+      },
+      // '/static'으로 시작하는 요청도 FastAPI AI 서버(8000)로 보냅니다. (PDF 리포트 다운로드용)
+      '/static': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       }
     }
   }

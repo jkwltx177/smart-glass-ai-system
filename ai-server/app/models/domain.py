@@ -67,3 +67,16 @@ class Prediction(Base):
     anomaly_score = Column(Numeric(6, 4))
     prediction_summary = Column(Text)
     predicted_at = Column(DateTime, default=func.now())
+
+class ErrorLog(Base):
+    __tablename__ = "error_logs"
+    
+    log_id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    incident_id = Column(BigInteger)
+    device_id = Column(String(30))
+    error_timestamp = Column(DateTime, default=func.now())
+    dtc_code = Column(String(20))
+    dtc_description = Column(String(255))
+    ecu_module = Column(String(100))
+    error_severity = Column(String(20))
+    raw_message = Column(Text)

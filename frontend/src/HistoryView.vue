@@ -1,17 +1,46 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+
+interface HistoryLog {
+  id: string
+  timestamp: string
+  type: string
+  status: string
+  latency: string
+}
 
 const emit = defineEmits<{
   back: []
 }>()
 
-// 예시 데이터: 실제 개발 시 API에서 받아오는 값으로 대체
-const historyLogs = ref([
-  { id: 'REQ-9402', timestamp: '2026-03-06 14:22:10', type: 'Multimodal', status: 'Success', latency: '1.2s' },
-  { id: 'REQ-9401', timestamp: '2026-03-06 13:05:45', type: 'Audio Only', status: 'Success', latency: '0.8s' },
-  { id: 'REQ-9398', timestamp: '2026-03-05 18:50:22', type: 'Multimodal', status: 'Failed', latency: '-' },
-  { id: 'REQ-9395', timestamp: '2026-03-05 16:12:05', type: 'Visual Context', status: 'Success', latency: '2.1s' },
-])
+const historyLogs = ref<HistoryLog[]>([])
+const loading = ref(true)
+const error = ref<string | null>(null)
+
+async function fetchHistory() {
+  loading.value = true
+  error.value = null
+  try {
+    const response = await fetch('/api/incidents/') // Vite proxy will rewrite this to /api/v1/incidents/
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    // Map backend incident format to HistoryLog interface
+    historyLogs.value = data.map((item: any) => ({
+      id: item.incident_id,
+      timestamp: new Date(item.created_at).toLocaleString(),
+      type: item.device_type || 'Unknown',
+      status: item.status,
+      latency: '-' // Not provided by real API yet
+    }))
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '분석 이력을 불러오지 못했습니다.'
+    historyLogs.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => fetchHistory())
 </script>
 
 <template>
@@ -51,7 +80,9 @@ const historyLogs = ref([
         </div>
 
         <div class="table-wrapper">
-          <table class="data-table">
+          <div v-if="loading" class="loading-state">분석 이력을 불러오는 중...</div>
+          <div v-else-if="error" class="error-state">{{ error }}</div>
+          <table v-else class="data-table">
             <thead>
               <tr>
                 <th>Request ID</th>
@@ -82,7 +113,7 @@ const historyLogs = ref([
         </div>
 
         <footer class="table-footer">
-          <div class="pagination-info">Showing 4 of 1,240 entries</div>
+          <div class="pagination-info">Showing {{ historyLogs.length }} of {{ historyLogs.length }} entries</div>
           <div class="pagination-controls">
             <button disabled>Prev</button>
             <button class="active">1</button>
@@ -184,6 +215,18 @@ const historyLogs = ref([
   border-radius: 2px;
   overflow: hidden;
   background: #161e2d;
+}
+
+.loading-state,
+.error-state {
+  padding: 48px 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.error-state {
+  color: #ef4444;
 }
 
 .data-table {

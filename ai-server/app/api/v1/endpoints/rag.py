@@ -102,5 +102,6 @@ async def run_rag_query_with_files(
             escalation_required=final_plan_data.get("escalation_required", False)
         ),
         explanation=result.get("explanation", "결과 분석 중입니다."),
-        evidence=result.get("evidence", [])
+        evidence=result.get("evidence", []),
+        incident_id=str(incident_id)
     )
