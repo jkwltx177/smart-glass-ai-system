@@ -3,15 +3,34 @@ from .state import AgentState
 from app.services.speech.stt_service import process_audio_upload
 from app.services.vision.vision_service import process_image_upload
 from app.services.rag.rag_pipeline import RAGInput, init_sample_store, run_rag_pipeline
+from app.core.database import SessionLocal
+from app.models.domain import ErrorLog
 
 # RAG 벡터 스토어 전역 초기화
 faiss_store = init_sample_store()
 
 def data_ingestion_node(state: AgentState):
-    """Step 1: 데이터 로드 (Mock)"""
+    """Step 1: 데이터 로드 (DB에서 에러 로그 조회 및 센서 데이터 Mock)"""
+    device_id = state.get("equipment_id", "DEV-MAF-01")
+    
+    # DB에서 에러 로그 조회
+    recent_errors = []
+    try:
+        with SessionLocal() as db:
+            logs = db.query(ErrorLog).filter(ErrorLog.device_id == device_id).order_by(ErrorLog.error_timestamp.desc()).limit(3).all()
+            for log in logs:
+                recent_errors.append({
+                    "timestamp": str(log.error_timestamp),
+                    "error_code": log.dtc_code,
+                    "message": log.dtc_description
+                })
+    except Exception as e:
+        print(f"Error fetching logs from DB: {e}")
+        
     return {
-        "equipment_id": "EQ-MAF-001",
-        "telemetry_data": {"airflow": "unstable", "fuel_trim": "+18%"}
+        "equipment_id": device_id,
+        "telemetry_data": {"airflow": "unstable", "fuel_trim": "+18%"},
+        "recent_error_logs": recent_errors
     }
 
 def speech_vision_analysis_node(state: AgentState):
@@ -70,7 +89,8 @@ def rag_knowledge_node(state: AgentState):
             "failure_probability": 0.67,
             "anomaly_score": 0.81,
         },
-        "timeseries_summary": state.get("telemetry_data", {})
+        "timeseries_summary": state.get("telemetry_data", {}),
+        "recent_error_logs": state.get("recent_error_logs", [])
     }
     
     rag_input = RAGInput(
