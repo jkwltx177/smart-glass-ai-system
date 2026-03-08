@@ -4,6 +4,7 @@ import { ref } from 'vue'
 const props = defineProps<{
   ragLoading: boolean
   ragMessage: string
+  incidentId: string | null
 }>()
 
 const emit = defineEmits<{
@@ -14,10 +15,30 @@ const emit = defineEmits<{
 
 const selectedImage = ref<File | null>(null)
 const selectedAudio = ref<File | null>(null)
+const reportGenerating = ref(false)
 
 const isRecording = ref(false)
 let mediaRecorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
+
+const downloadReport = async () => {
+  if (!props.incidentId) return
+  reportGenerating.value = true
+  try {
+    const response = await fetch(`/api/report/quality?incident_id=${props.incidentId}`, {
+      method: 'POST'
+    })
+    if (!response.ok) throw new Error('Failed to generate report')
+    const data = await response.json()
+    if (data.report_url) {
+      window.open(data.report_url, '_blank')
+    }
+  } catch (e) {
+    alert('보고서 생성 중 오류가 발생했습니다.')
+  } finally {
+    reportGenerating.value = false
+  }
+}
 
 const toggleRecording = async () => {
   if (!isRecording.value) {
@@ -144,7 +165,18 @@ const onSubmit = () => {
           <div v-if="props.ragMessage" class="report-area">
             <div class="report-header">
               <span class="report-tag">Inference Result</span>
-              <span class="timestamp">2026-03-06 | Admin-01</span>
+              <div class="report-actions">
+                <button 
+                  v-if="props.incidentId" 
+                  @click="downloadReport" 
+                  class="action-btn" 
+                  :disabled="reportGenerating"
+                >
+                  <span v-if="reportGenerating" class="spinner-small"></span>
+                  {{ reportGenerating ? 'Generating...' : '📄 Download PDF' }}
+                </button>
+                <span class="timestamp">2026-03-06 | Admin-01</span>
+              </div>
             </div>
             <div class="report-body">
               {{ props.ragMessage }}
@@ -329,7 +361,24 @@ const onSubmit = () => {
 }
 
 .report-header {
-  display: flex; justify-content: space-between; margin-bottom: 20px;
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
+}
+
+.report-actions {
+  display: flex; align-items: center; gap: 16px;
+}
+
+.action-btn {
+  background: #1f2937; border: 1px solid #3b82f6; color: #60a5fa;
+  padding: 6px 12px; border-radius: 4px; font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 6px;
+}
+.action-btn:hover:not(:disabled) { background: #3b82f6; color: #fff; }
+.action-btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #475569; color: #94a3b8; }
+
+.spinner-small {
+  width: 10px; height: 10px; border: 2px solid rgba(255,255,255,0.1);
+  border-top-color: currentColor; border-radius: 50%; animation: spin 0.8s linear infinite;
 }
 
 .report-tag { font-size: 11px; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.05em; }

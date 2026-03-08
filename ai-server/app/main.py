@@ -3,7 +3,9 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.api.v1.endpoints import incidents, kb, rag, predictive, aiops, reporting, history
+import os
 
 app = FastAPI(
     title="Smart Glass AI System API",
@@ -18,6 +20,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Static Files
+os.makedirs("storage/reports", exist_ok=True)
+app.mount("/static/reports", StaticFiles(directory="storage/reports"), name="reports")
 
 # New Router Mappings
 app.include_router(incidents.router, prefix="/api/v1/incidents", tags=["A. Incident Management"])

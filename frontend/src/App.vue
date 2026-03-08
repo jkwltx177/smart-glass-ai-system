@@ -21,6 +21,7 @@ type ViewType = 'login' | 'menu' | 'rag' | 'history'
 const currentView = ref<ViewType>('login')
 const message = ref('')
 const ragMessage = ref('')
+const incidentId = ref<string | null>(null)
 const loginLoading = ref(false)
 const ragLoading = ref(false)
 
@@ -128,9 +129,11 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
 
     const data = await response.json()
     ragMessage.value = `[분석 결과]\n${data.explanation}\n\n[조치 절차]\n${data.action_plan?.steps?.join('\n') || '없음'}`
+    incidentId.value = data.incident_id || null
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
     ragMessage.value = `요청 중 오류가 발생했습니다: ${errorMessage}`
+    incidentId.value = null
   } finally {
     ragLoading.value = false
   }
@@ -146,6 +149,7 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
     v-else-if="currentView === 'rag'"
     :rag-loading="ragLoading"
     :rag-message="ragMessage"
+    :incident-id="incidentId"
     @submit="sendRagRequest"
     @back="navigateTo('menu')"
     @logout="onLogout"

@@ -79,6 +79,7 @@ class RAGQueryResponse(BaseModel):
     action_plan: ActionPlan
     explanation: str
     evidence: List[str]
+    incident_id: Optional[str] = None
 
 # --- D. Predictive ---
 class PredictionRequest(BaseModel):

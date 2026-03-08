@@ -5,15 +5,29 @@ from sqlalchemy.orm import Session
 from app.models.domain import Incident, IncidentAsset
 from app.core.config import settings
 
+# 현재 파일이 있는 디렉토리 경로
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+FONT_PATH = os.path.join(CURRENT_DIR, "NanumGothic.ttf")
+FONT_BOLD_PATH = os.path.join(CURRENT_DIR, "NanumGothicBold.ttf")
+
 class ReportPDF(FPDF):
     def header(self):
-        self.set_font('Arial', 'B', 15)
+        # 폰트 등록
+        if os.path.exists(FONT_BOLD_PATH):
+            self.add_font('NanumGothic', 'B', FONT_BOLD_PATH)
+            self.set_font('NanumGothic', 'B', 15)
+        else:
+            self.set_font('Arial', 'B', 15)
         self.cell(0, 10, 'Smart Factory Quality Remote Assist Report', 0, 1, 'C')
         self.ln(10)
 
     def footer(self):
         self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
+        if os.path.exists(FONT_PATH):
+            self.add_font('NanumGothic', '', FONT_PATH)
+            self.set_font('NanumGothic', '', 8)
+        else:
+            self.set_font('Arial', 'I', 8)
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
 def generate_pdf_report(incident_id: int, db: Session) -> str:
@@ -28,39 +42,48 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
 
     pdf = ReportPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
+    
+    # 폰트 설정
+    if os.path.exists(FONT_PATH):
+        pdf.add_font('NanumGothic', '', FONT_PATH)
+        pdf.add_font('NanumGothic', 'B', FONT_BOLD_PATH)
+        base_font = 'NanumGothic'
+    else:
+        base_font = 'Arial'
+
+    pdf.set_font(base_font, size=12)
 
     # Basic Info
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="1. Incident Information", ln=1)
-    pdf.set_font("Arial", size=10)
-    pdf.cell(200, 8, txt=f"Incident ID: {incident.incident_id}", ln=1)
-    pdf.cell(200, 8, txt=f"Device ID: {incident.device_id}", ln=1)
-    pdf.cell(200, 8, txt=f"Site: {incident.site} | Line: {incident.line}", ln=1)
-    pdf.cell(200, 8, txt=f"Created At: {incident.created_at}", ln=1)
-    pdf.cell(200, 8, txt=f"Status: {incident.status} | Severity: {incident.severity}", ln=1)
+    pdf.set_font(base_font, 'B', 12)
+    pdf.cell(200, 10, txt="1. 사건 기본 정보 (Incident Information)", ln=1)
+    pdf.set_font(base_font, '', 10)
+    pdf.cell(200, 8, txt=f"사건 번호 (ID): {incident.incident_id}", ln=1)
+    pdf.cell(200, 8, txt=f"장비 식별자 (Device ID): {incident.device_id}", ln=1)
+    pdf.cell(200, 8, txt=f"발생 위치: {incident.site} | 라인: {incident.line}", ln=1)
+    pdf.cell(200, 8, txt=f"생성 일시: {incident.created_at}", ln=1)
+    pdf.cell(200, 8, txt=f"상태: {incident.status} | 심각도: {incident.severity}", ln=1)
     pdf.ln(5)
 
     # Details
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="2. Description", ln=1)
-    pdf.set_font("Arial", size=10)
-    # Handle potentially long descriptions
-    desc = str(incident.description) if incident.description else "No description provided."
-    # A simple way to handle encoding issues if any non-latin chars exist
-    desc = desc.encode('latin-1', 'replace').decode('latin-1') 
+    pdf.set_font(base_font, 'B', 12)
+    pdf.cell(200, 10, txt="2. 상세 설명 및 조치 내용 (Description & Action Plan)", ln=1)
+    pdf.set_font(base_font, '', 10)
+    
+    desc = str(incident.description) if incident.description else "상세 설명이 없습니다."
+    
+    # UTF-8 출력 지원
     pdf.multi_cell(0, 8, txt=desc)
     pdf.ln(5)
 
     # Assets Summary
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="3. Attached Assets", ln=1)
-    pdf.set_font("Arial", size=10)
+    pdf.set_font(base_font, 'B', 12)
+    pdf.cell(200, 10, txt="3. 첨부 파일 및 증적 자료 (Attached Assets)", ln=1)
+    pdf.set_font(base_font, '', 10)
     if assets:
         for asset in assets:
             pdf.cell(200, 8, txt=f"- [{asset.asset_type}] {asset.file_name} ({asset.file_size} bytes)", ln=1)
     else:
-        pdf.cell(200, 8, txt="No assets attached.", ln=1)
+        pdf.cell(200, 8, txt="첨부된 파일이 없습니다.", ln=1)
 
     # Save PDF
     os.makedirs(settings.REPORT_OUTPUT_DIR, exist_ok=True)
