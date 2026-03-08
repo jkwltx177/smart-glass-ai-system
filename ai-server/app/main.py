@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.endpoints import incidents, kb, rag, predictive, aiops, reporting
+from app.api.v1.endpoints import incidents, kb, rag, predictive, aiops, reporting, history
 
 app = FastAPI(
     title="Smart Glass AI System API",
@@ -23,6 +23,7 @@ app.include_router(rag.router, prefix="/api/v1/rag", tags=["C. RAG Engine"])
 app.include_router(predictive.router, prefix="/api/v1/predict", tags=["D. Predictive AI"])
 app.include_router(aiops.router, prefix="/api/v1/aiops", tags=["E. AIOps"])
 app.include_router(reporting.router, prefix="/api/v1/report", tags=["F. Reporting"])
+app.include_router(history.router, prefix="/api/v1/history", tags=["G. History"])
 
 @app.get("/health")
 def health_check():
