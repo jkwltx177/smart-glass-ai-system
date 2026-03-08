@@ -37,4 +37,4 @@ python-dotenv>=1.0.0
 
 # ============ Async HTTP Requests =============
 httpx>=0.25.0
-aiohttp>=3.9.0
+aiohttp>=3.9.0SQLAlchemy pymysql aiomysql

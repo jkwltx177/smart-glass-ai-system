@@ -1,0 +1,8 @@
+CREATE DATABASE IF NOT EXISTS smart_glass_dev
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'sg_app'@'%' IDENTIFIED BY 'sg_app_1';
+ALTER USER 'sg_app'@'%' IDENTIFIED BY 'sg_app_1';
+GRANT ALL PRIVILEGES ON smart_glass_dev.* TO 'sg_app'@'%';
+FLUSH PRIVILEGES;
