@@ -435,189 +435,199 @@ watch(equipmentId, () => {
           </p>
         </header>
 
-        <div class="form-structure">
-          <div class="upload-slot">
-            <div class="slot-header">
-              <label class="slot-label">Mobile Bridge</label>
-              <span class="slot-ext status-required">{{ mobileConnected ? 'Connected' : 'Waiting for mobile' }}</span>
-            </div>
-            <div class="equipment-panel">
-              <div class="mobile-meta-line"><strong>Pair Code:</strong> {{ mobileCode || 'N/A' }}</div>
-              <div class="mobile-meta-line">
-                <strong>Mobile Host(IP:Port):</strong>
-                <input
-                  class="mobile-host-input"
-                  v-model="mobileHost"
-                  type="text"
-                  placeholder="예: 192.168.0.12:5173"
-                />
-              </div>
-              <div class="mobile-meta-line"><strong>Mobile URL:</strong> <a :href="mobileLink" target="_blank">{{ mobileLink }}</a></div>
-              <p v-if="!mobileLink" class="device-error">
-                현재 PC가 localhost로 열려 있습니다. 모바일 접속용 IP:PORT를 입력하세요.
-              </p>
-              <div v-if="mobileQrSrc" class="qr-wrap">
-                <img :src="mobileQrSrc" alt="Mobile URL QR" class="qr-image" />
-                <p class="qr-caption">스마트폰 카메라로 QR을 스캔해 접속</p>
-              </div>
-              <div class="mobile-meta-line"><strong>Device:</strong> {{ mobileDeviceLabel || '-' }}</div>
-              <div class="mobile-meta-line"><strong>Last Seen:</strong> {{ mobileLastSeen || '-' }}</div>
-              <div class="equipment-actions">
-                <button class="action-btn-inline" type="button" @click="startMobileSession">New Code</button>
-                <button class="action-btn-inline" type="button" :disabled="mobileStatusLoading" @click="pollMobileStatus">
-                  {{ mobileStatusLoading ? 'Checking...' : 'Refresh Status' }}
-                </button>
-              </div>
-              <p v-if="mobileStatusError" class="device-error">{{ mobileStatusError }}</p>
-            </div>
-          </div>
-
-          <div class="upload-slot">
-            <div class="slot-header">
-              <label class="slot-label">Equipment ID</label>
-              <span class="slot-ext status-required">Required</span>
-            </div>
-            <div class="equipment-panel">
-              <input
-                class="equipment-input"
-                v-model="equipmentId"
-                list="equipment-id-options"
-                type="text"
-                placeholder="장비를 선택하거나 ID 입력"
-                required
-                @focus="loadDevices"
-              />
-              <datalist id="equipment-id-options">
-                <option v-for="item in deviceOptions" :key="item.device_id" :value="item.device_id">
-                  {{ item.device_name || item.device_id }}
-                </option>
-              </datalist>
-
-              <div class="equipment-actions">
-                <button class="action-btn-inline" type="button" @click="showAddDevice = !showAddDevice">
-                  {{ showAddDevice ? 'Cancel' : 'Add New Device' }}
-                </button>
-                <button class="action-btn-inline" type="button" @click="loadDevices" :disabled="devicesLoading">
-                  {{ devicesLoading ? 'Loading...' : 'Refresh' }}
-                </button>
-              </div>
-
-              <div v-if="showAddDevice" class="device-create-form">
-                <input v-model="newDeviceId" type="text" placeholder="device_id (예: DEV-NEW-01)" />
-                <input v-model="newDeviceName" type="text" placeholder="device_name" />
-                <input v-model="newVehicleType" type="text" placeholder="vehicle_type" />
-                <input v-model="newLineOrSite" type="text" placeholder="line_or_site" />
-                <input v-model="newLocation" type="text" placeholder="location" />
-                <button class="action-btn-inline primary" type="button" :disabled="addDeviceLoading" @click="addDevice">
-                  {{ addDeviceLoading ? 'Saving...' : 'Save Device' }}
-                </button>
-              </div>
-
-              <p v-if="devicesError" class="device-error">{{ devicesError }}</p>
-            </div>
-          </div>
-
-          <div class="upload-slot">
-            <div class="slot-header">
-              <label class="slot-label">Visual Reference</label>
-              <span class="slot-ext">Optional / Image Files</span>
-            </div>
-            <div class="drop-container" :class="{ 'file-active': selectedImage }">
-              <input type="file" accept="image/*" @change="onImageChange" />
-              <div class="drop-placeholder">
-                <span class="placeholder-text">
-                  {{ selectedImage ? selectedImage.name : 'Select or drag visual data' }}
-                </span>
-                <span class="placeholder-sub" v-if="!selectedImage">Recommended: High-resolution JPG or PNG</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="upload-slot">
-            <div class="slot-header">
-              <label class="slot-label">Audio Query</label>
-              <span class="slot-ext status-required">Required / Record or Upload</span>
-            </div>
-            
-            <div class="audio-controls">
-              <button class="record-btn" :class="{ 'is-recording': isRecording }" @click="toggleRecording">
-                <span class="record-icon"></span>
-                {{ isRecording ? 'Stop Recording' : 'Start Recording' }}
-              </button>
-
-              <div class="drop-container highlight-border" :class="{ 'file-active': selectedAudio }">
-                <input type="file" accept="audio/*" @change="onAudioChange" />
-                <div class="drop-placeholder">
-                  <span class="placeholder-text">
-                    {{ selectedAudio ? selectedAudio.name : 'Or upload inquiry audio file' }}
-                  </span>
-                  <span class="placeholder-sub" v-if="!selectedAudio">Sampling rate: 16kHz or higher recommended</span>
+        <div class="rag-layout">
+          <div class="form-column">
+            <div class="form-structure">
+              <div class="upload-slot">
+                <div class="slot-header">
+                  <label class="slot-label">Mobile Bridge</label>
+                  <span class="slot-ext status-required">{{ mobileConnected ? 'Connected' : 'Waiting for mobile' }}</span>
+                </div>
+                <div class="equipment-panel">
+                  <div class="mobile-meta-line"><strong>Pair Code:</strong> {{ mobileCode || 'N/A' }}</div>
+                  <div class="mobile-meta-line">
+                    <strong>Mobile Host(IP:Port):</strong>
+                    <input
+                      class="mobile-host-input"
+                      v-model="mobileHost"
+                      type="text"
+                      placeholder="예: 192.168.0.12:5173"
+                    />
+                  </div>
+                  <div class="mobile-meta-line"><strong>Mobile URL:</strong> <a :href="mobileLink" target="_blank">{{ mobileLink }}</a></div>
+                  <p v-if="!mobileLink" class="device-error">
+                    현재 PC가 localhost로 열려 있습니다. 모바일 접속용 IP:PORT를 입력하세요.
+                  </p>
+                  <div v-if="mobileQrSrc" class="qr-wrap">
+                    <img :src="mobileQrSrc" alt="Mobile URL QR" class="qr-image" />
+                    <p class="qr-caption">스마트폰 카메라로 QR을 스캔해 접속</p>
+                  </div>
+                  <div class="mobile-meta-line"><strong>Device:</strong> {{ mobileDeviceLabel || '-' }}</div>
+                  <div class="mobile-meta-line"><strong>Last Seen:</strong> {{ mobileLastSeen || '-' }}</div>
+                  <div class="equipment-actions">
+                    <button class="action-btn-inline" type="button" @click="startMobileSession">New Code</button>
+                    <button class="action-btn-inline" type="button" :disabled="mobileStatusLoading" @click="pollMobileStatus">
+                      {{ mobileStatusLoading ? 'Checking...' : 'Refresh Status' }}
+                    </button>
+                  </div>
+                  <p v-if="mobileStatusError" class="device-error">{{ mobileStatusError }}</p>
                 </div>
               </div>
+
+              <div class="upload-slot">
+                <div class="slot-header">
+                  <label class="slot-label">Equipment ID</label>
+                  <span class="slot-ext status-required">Required</span>
+                </div>
+                <div class="equipment-panel">
+                  <input
+                    class="equipment-input"
+                    v-model="equipmentId"
+                    list="equipment-id-options"
+                    type="text"
+                    placeholder="장비를 선택하거나 ID 입력"
+                    required
+                    @focus="loadDevices"
+                  />
+                  <datalist id="equipment-id-options">
+                    <option v-for="item in deviceOptions" :key="item.device_id" :value="item.device_id">
+                      {{ item.device_name || item.device_id }}
+                    </option>
+                  </datalist>
+
+                  <div class="equipment-actions">
+                    <button class="action-btn-inline" type="button" @click="showAddDevice = !showAddDevice">
+                      {{ showAddDevice ? 'Cancel' : 'Add New Device' }}
+                    </button>
+                    <button class="action-btn-inline" type="button" @click="loadDevices" :disabled="devicesLoading">
+                      {{ devicesLoading ? 'Loading...' : 'Refresh' }}
+                    </button>
+                  </div>
+
+                  <div v-if="showAddDevice" class="device-create-form">
+                    <input v-model="newDeviceId" type="text" placeholder="device_id (예: DEV-NEW-01)" />
+                    <input v-model="newDeviceName" type="text" placeholder="device_name" />
+                    <input v-model="newVehicleType" type="text" placeholder="vehicle_type" />
+                    <input v-model="newLineOrSite" type="text" placeholder="line_or_site" />
+                    <input v-model="newLocation" type="text" placeholder="location" />
+                    <button class="action-btn-inline primary" type="button" :disabled="addDeviceLoading" @click="addDevice">
+                      {{ addDeviceLoading ? 'Saving...' : 'Save Device' }}
+                    </button>
+                  </div>
+
+                  <p v-if="devicesError" class="device-error">{{ devicesError }}</p>
+                </div>
+              </div>
+
+              <div class="upload-slot">
+                <div class="slot-header">
+                  <label class="slot-label">Visual Reference</label>
+                  <span class="slot-ext">Optional / Image Files</span>
+                </div>
+                <div class="drop-container" :class="{ 'file-active': selectedImage }">
+                  <input type="file" accept="image/*" @change="onImageChange" />
+                  <div class="drop-placeholder">
+                    <span class="placeholder-text">
+                      {{ selectedImage ? selectedImage.name : 'Select or drag visual data' }}
+                    </span>
+                    <span class="placeholder-sub" v-if="!selectedImage">Recommended: High-resolution JPG or PNG</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="upload-slot">
+                <div class="slot-header">
+                  <label class="slot-label">Audio Query</label>
+                  <span class="slot-ext status-required">Required / Record or Upload</span>
+                </div>
+                
+                <div class="audio-controls">
+                  <button class="record-btn" :class="{ 'is-recording': isRecording }" @click="toggleRecording">
+                    <span class="record-icon"></span>
+                    {{ isRecording ? 'Stop Recording' : 'Start Recording' }}
+                  </button>
+
+                  <div class="drop-container highlight-border" :class="{ 'file-active': selectedAudio }">
+                    <input type="file" accept="audio/*" @change="onAudioChange" />
+                    <div class="drop-placeholder">
+                      <span class="placeholder-text">
+                        {{ selectedAudio ? selectedAudio.name : 'Or upload inquiry audio file' }}
+                      </span>
+                      <span class="placeholder-sub" v-if="!selectedAudio">Sampling rate: 16kHz or higher recommended</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="action-footer">
+                <button 
+                  class="primary-execute-btn" 
+                  :disabled="props.ragLoading || !selectedAudio" 
+                  @click="onSubmit"
+                >
+                  <div v-if="props.ragLoading" class="spinner"></div>
+                  <span>{{ props.ragLoading ? 'Processing Request' : 'Execute Analysis' }}</span>
+                </button>
+              </div>
             </div>
           </div>
 
-          <div class="action-footer">
-            <button 
-              class="primary-execute-btn" 
-              :disabled="props.ragLoading || !selectedAudio" 
-              @click="onSubmit"
-            >
-              <div v-if="props.ragLoading" class="spinner"></div>
-              <span>{{ props.ragLoading ? 'Processing Request' : 'Execute Analysis' }}</span>
-            </button>
+          <div class="result-column">
+            <transition name="report-fade">
+              <div v-if="props.ragMessage" class="report-area">
+                <div class="report-header">
+                  <span class="report-tag">Inference Result</span>
+                  <div class="report-actions">
+                    <button 
+                      v-if="props.incidentId" 
+                      @click="previewReport" 
+                      class="action-btn" 
+                      :disabled="reportGenerating"
+                    >
+                      <span v-if="reportGenerating" class="spinner-small"></span>
+                      {{ previewUrl ? 'Hide Preview' : '👁️ Preview PDF' }}
+                    </button>
+                    <button 
+                      v-if="props.incidentId" 
+                      @click="downloadReport" 
+                      class="action-btn" 
+                      :disabled="reportGenerating"
+                    >
+                      <span v-if="reportGenerating" class="spinner-small"></span>
+                      📄 Download
+                    </button>
+                    <span class="timestamp">2026-03-06 | Admin-01</span>
+                  </div>
+                </div>
+                <div class="report-body">
+                  {{ props.ragMessage }}
+                </div>
+                <div v-if="metricCards.length > 0" class="inference-metrics">
+                  <div v-for="metric in metricCards" :key="metric.key" class="metric-card">
+                    <div class="metric-top">
+                      <span class="metric-label">{{ metric.label }}</span>
+                      <span class="metric-value">{{ metric.value }}</span>
+                    </div>
+                    <div class="metric-rail">
+                      <div
+                        class="metric-fill"
+                        :style="{ width: `${(metric.ratio * 100).toFixed(1)}%`, background: metric.color }"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div v-if="previewUrl" class="pdf-preview-container">
+                  <iframe :src="previewUrl" class="pdf-iframe"></iframe>
+                </div>
+              </div>
+              <div v-else class="report-area empty-report">
+                <span class="report-tag">Inference Result</span>
+                <p>분석 실행 후 결과가 이 영역에 표시됩니다.</p>
+              </div>
+            </transition>
           </div>
         </div>
-
-        <transition name="report-fade">
-          <div v-if="props.ragMessage" class="report-area">
-            <div class="report-header">
-              <span class="report-tag">Inference Result</span>
-              <div class="report-actions">
-                <button 
-                  v-if="props.incidentId" 
-                  @click="previewReport" 
-                  class="action-btn" 
-                  :disabled="reportGenerating"
-                >
-                  <span v-if="reportGenerating" class="spinner-small"></span>
-                  {{ previewUrl ? 'Hide Preview' : '👁️ Preview PDF' }}
-                </button>
-                <button 
-                  v-if="props.incidentId" 
-                  @click="downloadReport" 
-                  class="action-btn" 
-                  :disabled="reportGenerating"
-                >
-                  <span v-if="reportGenerating" class="spinner-small"></span>
-                  📄 Download
-                </button>
-                <span class="timestamp">2026-03-06 | Admin-01</span>
-              </div>
-            </div>
-            <div class="report-body">
-              {{ props.ragMessage }}
-            </div>
-            <div v-if="metricCards.length > 0" class="inference-metrics">
-              <div v-for="metric in metricCards" :key="metric.key" class="metric-card">
-                <div class="metric-top">
-                  <span class="metric-label">{{ metric.label }}</span>
-                  <span class="metric-value">{{ metric.value }}</span>
-                </div>
-                <div class="metric-rail">
-                  <div
-                    class="metric-fill"
-                    :style="{ width: `${(metric.ratio * 100).toFixed(1)}%`, background: metric.color }"
-                  ></div>
-                </div>
-              </div>
-            </div>
-            
-            <div v-if="previewUrl" class="pdf-preview-container">
-              <iframe :src="previewUrl" class="pdf-iframe"></iframe>
-            </div>
-          </div>
-        </transition>
       </div>
     </section>
   </main>
@@ -647,7 +657,7 @@ watch(equipmentId, () => {
 
 .console-wrapper {
   width: 100%;
-  max-width: 800px;
+  max-width: 1400px;
   z-index: 10;
   min-width: 0;
 }
@@ -705,6 +715,18 @@ watch(equipmentId, () => {
 
 .module-title { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 16px; }
 .module-description { color: #94a3b8; font-size: 15px; line-height: 1.6; }
+
+.rag-layout {
+  display: grid;
+  grid-template-columns: minmax(520px, 1fr) minmax(420px, 0.95fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.form-column,
+.result-column {
+  min-width: 0;
+}
 
 /* Form Elements */
 .upload-slot { margin-bottom: 32px; }
@@ -915,7 +937,11 @@ watch(equipmentId, () => {
 
 /* Report Section */
 .report-area {
-  margin-top: 48px; padding-top: 40px; border-top: 1px solid #1f2937;
+  border: 1px solid #1f2937;
+  border-radius: 4px;
+  background: #0a0d12;
+  padding: 22px;
+  min-height: 320px;
 }
 
 .report-header {
@@ -941,6 +967,11 @@ watch(equipmentId, () => {
 
 .report-tag { font-size: 11px; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.05em; }
 .timestamp { font-size: 11px; color: #475569; }
+.empty-report p {
+  margin: 14px 0 0;
+  font-size: 14px;
+  color: #94a3b8;
+}
 
 .report-body {
   font-size: 15px; line-height: 1.8; color: #cbd5e1;
@@ -1022,6 +1053,11 @@ watch(equipmentId, () => {
 @media (max-width: 900px) {
   .analysis-module {
     padding: 28px 18px;
+  }
+
+  .rag-layout {
+    grid-template-columns: 1fr;
+    gap: 22px;
   }
 
   .device-create-form {
