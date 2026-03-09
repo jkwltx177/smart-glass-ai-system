@@ -6,8 +6,10 @@ import MobileCaptureView from './MobileCaptureView.vue'
 import MenuView from './MenuView.vue'
 import RagView from './RagView.vue'
 
-const LOGIN_API_URL = 'http://localhost:8081/auth/login'
-const REGISTER_API_URL = 'http://localhost:8081/auth/register'
+const AUTH_BASE_URL = (import.meta.env.VITE_AUTH_BASE_URL as string | undefined)?.trim() || '/auth'
+const authUrl = (path: '/login' | '/register') => `${AUTH_BASE_URL.replace(/\/$/, '')}${path}`
+const LOGIN_API_URL = authUrl('/login')
+const REGISTER_API_URL = authUrl('/register')
 const ACCESS_TOKEN_STORAGE_KEY = 'accessToken'
 const TOKEN_TYPE_STORAGE_KEY = 'tokenType'
 const EXPIRES_IN_STORAGE_KEY = 'expiresInSeconds'
@@ -101,11 +103,16 @@ type AuthSubmitPayload = {
 }
 
 const onSubmit = async (credentials: AuthSubmitPayload) => {
-  if (!credentials.id || !credentials.pw) {
+  const username = String(credentials.id || '').trim()
+  const password = String(credentials.pw || '').trim()
+  const companyName = String(credentials.companyName || '').trim()
+  const companyAuthCode = String(credentials.companyAuthCode || '').trim()
+
+  if (!username || !password) {
     message.value = 'id와 pw를 모두 입력해주세요.'
     return
   }
-  if (credentials.mode === 'signup' && (!credentials.companyName || !credentials.companyAuthCode)) {
+  if (credentials.mode === 'signup' && (!companyName || !companyAuthCode)) {
     message.value = '회원가입 시 회사명과 인증 코드를 모두 입력해주세요.'
     return
   }
@@ -114,6 +121,24 @@ const onSubmit = async (credentials: AuthSubmitPayload) => {
   message.value = ''
 
   try {
+    const readErrorDetail = async (response: Response) => {
+      try {
+        const contentType = response.headers.get('content-type') || ''
+        if (contentType.includes('application/json')) {
+          const payload = await response.json()
+          const detail =
+            (typeof payload?.detail === 'string' && payload.detail) ||
+            (typeof payload?.message === 'string' && payload.message) ||
+            ''
+          return detail
+        }
+        const text = (await response.text()).trim()
+        return text
+      } catch {
+        return ''
+      }
+    }
+
     if (credentials.mode === 'signup') {
       const signupResponse = await fetch(REGISTER_API_URL, {
         method: 'POST',
@@ -121,15 +146,16 @@ const onSubmit = async (credentials: AuthSubmitPayload) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          username: credentials.id,
-          password: credentials.pw,
-          companyName: credentials.companyName,
-          companyAuthCode: credentials.companyAuthCode,
+          username,
+          password,
+          companyName,
+          companyAuthCode,
         }),
       })
 
       if (!signupResponse.ok) {
-        throw new Error(`회원가입 실패 (${signupResponse.status})`)
+        const detail = await readErrorDetail(signupResponse)
+        throw new Error(`회원가입 실패 (${signupResponse.status})${detail ? ` - ${detail}` : ''}`)
       }
 
       message.value = '회원가입이 완료되었습니다. 같은 계정으로 로그인하세요.'
@@ -142,13 +168,14 @@ const onSubmit = async (credentials: AuthSubmitPayload) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        username: credentials.id,
-        password: credentials.pw,
+        username,
+        password,
       }),
     })
 
     if (!response.ok) {
-      throw new Error(`로그인 실패 (${response.status})`)
+      const detail = await readErrorDetail(response)
+      throw new Error(`로그인 실패 (${response.status})${detail ? ` - ${detail}` : ''}`)
     }
 
     const payload = (await response.json()) as Partial<LoginResponse>
@@ -163,7 +190,7 @@ const onSubmit = async (credentials: AuthSubmitPayload) => {
     localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, payload.accessToken)
     localStorage.setItem(TOKEN_TYPE_STORAGE_KEY, payload.tokenType)
     localStorage.setItem(EXPIRES_IN_STORAGE_KEY, String(payload.expiresInSeconds))
-    currentUserName.value = credentials.id
+    currentUserName.value = username
     currentUserRole.value = '인증 사용자'
     syncUserFromToken(payload.accessToken)
     currentView.value = 'menu'

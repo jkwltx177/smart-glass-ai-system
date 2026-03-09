@@ -39,6 +39,10 @@ let captionTimer: number | null = null
 const deviceLabel = `Smartphone-${navigator.platform || 'mobile'}`
 const imageFallbackRef = ref<HTMLInputElement | null>(null)
 const audioFallbackRef = ref<HTMLInputElement | null>(null)
+const secureContextOk = computed(() => window.isSecureContext || ['localhost', '127.0.0.1'].includes(window.location.hostname))
+const urlProtocol = computed(() => window.location.protocol)
+const iosLikeBrowser = computed(() => /iPhone|iPad|iPod/i.test(navigator.userAgent))
+const mediaBusyHint = ref('')
 const fallbackNotice = computed(() => {
   const notices: string[] = []
   if (cameraError.value) {
@@ -49,6 +53,34 @@ const fallbackNotice = computed(() => {
   }
   return notices.join(' / ')
 })
+
+const previewChecks = computed(() => [
+  { label: `접속 프로토콜: ${urlProtocol.value}`, ok: secureContextOk.value, hint: secureContextOk.value ? '보안 컨텍스트 OK' : 'HTTPS(또는 localhost) 필요' },
+  { label: '카메라 시작 방식', ok: true, hint: 'Start Camera Preview 버튼 클릭 후 실행' },
+  { label: 'video 속성', ok: true, hint: 'autoplay / playsinline / muted 적용' },
+  { label: 'iPhone 브라우저 제약', ok: true, hint: iosLikeBrowser.value ? 'Safari/Chrome/Firefox 동일 WebKit 제약 적용' : '일반 모바일 브라우저 제약 적용' },
+  { label: '카메라 점유 상태', ok: !mediaBusyHint.value, hint: mediaBusyHint.value || '점유 오류 감지 안 됨' },
+  { label: '권한 상태', ok: !cameraError.value.toLowerCase().includes('denied') && !cameraError.value.toLowerCase().includes('notallowed'), hint: '거부 이력 시 브라우저 설정에서 카메라/마이크 재허용' },
+])
+
+const mapMediaError = (error: unknown, target: 'camera' | 'audio') => {
+  const err = error as DOMException
+  const name = err?.name || 'UnknownError'
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return `${target === 'camera' ? '카메라' : '마이크'} 권한이 거부되었습니다. 브라우저 설정에서 다시 허용하세요.`
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    mediaBusyHint.value = '다른 앱/탭이 카메라를 사용 중일 수 있습니다.'
+    return `${target === 'camera' ? '카메라' : '마이크'} 장치를 점유 중인 앱이 있습니다. 다른 앱을 닫고 다시 시도하세요.`
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return `${target === 'camera' ? '카메라' : '마이크'} 장치를 찾지 못했습니다.`
+  }
+  if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+    return '요청한 미디어 조건을 만족하지 못했습니다.'
+  }
+  return err?.message || `${target === 'camera' ? '카메라' : '마이크'} 접근 실패`
+}
 
 const connectSession = async () => {
   if (!code.value.trim()) {
@@ -87,6 +119,13 @@ const connectSession = async () => {
 
 const startCamera = async () => {
   cameraError.value = ''
+  mediaBusyHint.value = ''
+  if (!secureContextOk.value) {
+    supportsRealtimeMedia.value = false
+    cameraReady.value = false
+    cameraError.value = 'HTTPS(또는 localhost) 환경에서만 카메라 프리뷰가 동작합니다.'
+    return
+  }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     supportsRealtimeMedia.value = false
     cameraReady.value = false
@@ -107,7 +146,7 @@ const startCamera = async () => {
     }
   } catch (error) {
     cameraReady.value = false
-    cameraError.value = error instanceof Error ? error.message : '카메라 접근 실패'
+    cameraError.value = mapMediaError(error, 'camera')
   }
 }
 
@@ -148,6 +187,12 @@ const clearPhoto = () => {
 
 const initAudio = async () => {
   audioError.value = ''
+  if (!secureContextOk.value) {
+    supportsRealtimeMedia.value = false
+    audioReady.value = false
+    audioError.value = 'HTTPS(또는 localhost) 환경에서만 마이크 프리뷰가 동작합니다.'
+    return
+  }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     supportsRealtimeMedia.value = false
     audioReady.value = false
@@ -159,13 +204,17 @@ const initAudio = async () => {
     audioReady.value = true
   } catch (error) {
     audioReady.value = false
-    audioError.value = error instanceof Error ? error.message : '마이크 접근 실패'
+    audioError.value = mapMediaError(error, 'audio')
   }
 }
 
 const startRecording = () => {
+  if (typeof MediaRecorder === 'undefined') {
+    audioError.value = '현재 브라우저는 실시간 녹음을 지원하지 않습니다. Open Mic / Choose Audio를 사용하세요.'
+    return
+  }
   if (!audioStream) {
-    audioError.value = '마이크 초기화가 필요합니다.'
+    audioError.value = '먼저 Start Mic Access를 눌러 마이크 권한을 허용해 주세요.'
     return
   }
   audioChunks = []
@@ -385,8 +434,8 @@ onMounted(async () => {
   if (code.value.trim()) {
     await connectSession()
   }
-  await startCamera()
-  await initAudio()
+  // iOS/WebKit 환경 제약 대응: 사용자 버튼 클릭 후 카메라 시작
+  // 마이크도 사용자 제스처(버튼 클릭) 후 initAudio를 호출하도록 변경
 
   orientationHandler()
 })
@@ -434,6 +483,9 @@ onUnmounted(() => {
       <div class="capture-layout" :class="{ landscape: isLandscape }">
         <section class="capture-box camera-main">
           <h2>Camera</h2>
+          <div v-if="!cameraReady" class="camera-boot">
+            <button class="btn primary" @click="startCamera">Start Camera Preview</button>
+          </div>
           <video v-if="supportsRealtimeMedia" ref="videoRef" class="camera" playsinline muted autoplay></video>
           <div v-if="isLandscape && currentCaption" class="caption-line">{{ currentCaption }}</div>
           <p v-if="cameraError && !isLandscape" class="error">{{ cameraError }}</p>
@@ -448,6 +500,7 @@ onUnmounted(() => {
           <section class="capture-box compact-controls">
             <h2>Control Panel</h2>
             <div v-if="supportsRealtimeMedia" class="actions compact-stack">
+              <button class="btn" @click="startCamera">Start Camera Preview</button>
               <button class="btn" :disabled="!cameraReady" @click="capturePhoto">Capture</button>
               <button class="btn" :disabled="!capturedImageFile" @click="clearPhoto">Clear Photo</button>
               <button class="btn" :disabled="!audioReady || isRecording" @click="startRecording">Start Record</button>
@@ -469,6 +522,14 @@ onUnmounted(() => {
             </button>
 
             <p v-if="message" class="message">{{ message }}</p>
+
+            <h2>Preview Checks</h2>
+            <ul class="precheck-list">
+              <li v-for="item in previewChecks" :key="item.label" :class="{ ok: item.ok, warn: !item.ok }">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.hint }}</span>
+              </li>
+            </ul>
           </section>
         </div>
       </div>
@@ -607,6 +668,13 @@ input {
   object-fit: cover;
 }
 
+.camera-boot {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 6;
+}
+
 .caption-line {
   position: absolute;
   left: 16px;
@@ -657,6 +725,41 @@ input {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.precheck-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.precheck-list li {
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: rgba(15, 23, 42, 0.7);
+  display: grid;
+  gap: 2px;
+}
+
+.precheck-list li.ok {
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.precheck-list li.warn {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.precheck-list strong {
+  font-size: 11px;
+  color: #e2e8f0;
+}
+
+.precheck-list span {
+  font-size: 11px;
+  color: #93c5fd;
 }
 
 .compact-stack {
@@ -781,6 +884,11 @@ input {
     display: none;
   }
 
+  .camera-boot {
+    top: 10px;
+    left: 10px;
+  }
+
   .camera {
     width: 100%;
     height: 100%;
@@ -837,6 +945,11 @@ input {
   .compact-controls .message,
   .compact-controls .error {
     font-size: 11px;
+  }
+
+  .precheck-list strong,
+  .precheck-list span {
+    font-size: 10px;
   }
 
   .compact-error {
