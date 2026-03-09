@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from langgraph.graph import StateGraph, END
 from .state import AgentState
 from app.services.speech.stt_service import process_audio_upload
@@ -8,7 +10,7 @@ from app.services.prediction import (
     predict_from_timeseries_summary,
 )
 from app.core.database import SessionLocal
-from app.models.domain import ErrorLog, Incident
+from app.models.domain import ErrorLog, Incident, Prediction
 
 # RAG 벡터 스토어 전역 초기화
 try:
@@ -117,16 +119,42 @@ def predictive_ai_node(state: AgentState):
     """Step 2-2: 시계열 요약 기반 예측"""
     telemetry_data = state.get("telemetry_data", {})
     fallbacks = list(state.get("pipeline_fallbacks", []))
+    incident_id_raw = state.get("incident_id")
+    incident_pk = None
+    try:
+        if incident_id_raw is not None:
+            incident_pk = int(incident_id_raw)
+    except (TypeError, ValueError):
+        incident_pk = None
     try:
         pred = predict_from_timeseries_summary(telemetry_data)
         prob = pred.failure_probability
         rul = pred.predicted_rul_minutes
         anomaly = pred.anomaly_score
         model_name = ",".join(pred.model_versions)
+        model_version = pred.model_source
         summary = (
             f"고장 확률 {prob*100:.1f}%, RUL {rul:.1f}분 예상 "
             f"(source={pred.model_source}, model={model_name})"
         )
+        if incident_pk is not None:
+            try:
+                with SessionLocal() as db:
+                    db.add(
+                        Prediction(
+                            incident_id=incident_pk,
+                            model_name=model_name[:100],
+                            model_version=str(model_version)[:50],
+                            failure_probability=round(float(prob), 4),
+                            predicted_rul_minutes=int(round(float(rul))),
+                            anomaly_score=round(float(anomaly), 4),
+                            prediction_summary=summary,
+                            predicted_at=datetime.utcnow(),
+                        )
+                    )
+                    db.commit()
+            except Exception as e:
+                fallbacks.append(f"prediction_persist_error:{str(e)}")
     except Exception as e:
         fallbacks.append(f"prediction_error:{str(e)}")
         prob = 0.5
@@ -201,13 +229,40 @@ def reasoning_node(state: AgentState):
     risk_level = state.get("risk_level", "NORMAL")
     escalation = state.get("escalation_required", False)
     rag_context = state.get("rag_context", [])
-    
-    # GPT 응답에서 조치 절차(Action) 부분을 대략적으로 추출하여 steps로 나눔
-    # (실제로는 LLM 응답을 JSON으로 받아야 더 깔끔하지만, 현재는 텍스트 통짜 응답이므로 분리 생략 가능)
-    
+    recent_errors = state.get("recent_error_logs", []) or []
+    telemetry_data = state.get("telemetry_data", {}) or {}
+    predicted_rul = float(state.get("predicted_rul", 180) or 180)
+    failure_probability = float(state.get("failure_probability", 0.5) or 0.5)
+
+    steps = []
+    if escalation or failure_probability >= 0.8 or predicted_rul <= 60:
+        steps.append("작업을 일시 중지하고 품질 엔지니어에게 즉시 에스컬레이션하세요.")
+    elif failure_probability >= 0.6 or predicted_rul <= 180:
+        steps.append("생산은 주의 상태로 유지하고 해당 로트를 분리 보관하세요.")
+    else:
+        steps.append("현재 공정은 유지하되 동일 증상 재발 여부를 모니터링하세요.")
+
+    if recent_errors:
+        primary_error = recent_errors[0].get("error_code") or "Unknown DTC"
+        steps.append(f"DTC {primary_error} 관련 배선/커넥터/센서 상태를 우선 점검하세요.")
+
+    sensor_overview = telemetry_data.get("sensor_overview", {}) if isinstance(telemetry_data, dict) else {}
+    coolant = sensor_overview.get("coolant_temp", {}) if isinstance(sensor_overview, dict) else {}
+    coolant_latest = float(coolant.get("latest", 0.0) or 0.0) if isinstance(coolant, dict) else 0.0
+    if coolant_latest >= 95:
+        steps.append("냉각계통(냉각수량, 라디에이터, 펌프) 과열 가능성을 점검하고 재측정하세요.")
+    else:
+        steps.append("핵심 센서값을 재계측해 동일 패턴 재현 여부를 확인하세요.")
+
+    steps.append("조치 후 10분 내 재검사하고, 오류 재발 시 CAPA 티켓을 발행하세요.")
+    dedup_steps = []
+    for s in steps:
+        if s not in dedup_steps:
+            dedup_steps.append(s)
+
     return {
         "final_action_plan": {
-            "steps": ["상세 조치 내용은 아래 분석 결과를 확인하세요."],
+            "steps": dedup_steps,
             "risk_level": risk_level,
             "escalation_required": escalation
         },

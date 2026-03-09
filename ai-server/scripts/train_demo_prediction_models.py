@@ -7,7 +7,7 @@ import numpy as np
 from sqlalchemy import text
 
 from app.core.database import SessionLocal
-from app.services.prediction.inference import FEATURE_KEYS
+from app.services.prediction.preprocessing import FEATURE_NAMES
 
 
 WINDOW = 120
@@ -28,22 +28,29 @@ def _slope(values: np.ndarray) -> float:
 
 def _stats(values: np.ndarray) -> dict:
     if values.size == 0:
-        return {"latest": 0.0, "mean": 0.0, "std": 0.0, "slope": 0.0}
+        return {"latest": 0.0, "mean": 0.0, "std": 0.0, "min": 0.0, "max": 0.0, "slope": 0.0}
     return {
         "latest": float(values[-1]),
         "mean": float(values.mean()),
         "std": float(values.std()),
+        "min": float(values.min()),
+        "max": float(values.max()),
         "slope": float(_slope(values)),
     }
 
 
+def _corr(a: np.ndarray, b: np.ndarray) -> float:
+    if len(a) < 2 or len(b) < 2:
+        return 0.0
+    sa = float(np.std(a))
+    sb = float(np.std(b))
+    if sa == 0.0 or sb == 0.0:
+        return 0.0
+    return float(np.corrcoef(a, b)[0, 1])
+
+
 def _to_feature_vector(summary: dict) -> List[float]:
-    feats: List[float] = []
-    for metric, stat in FEATURE_KEYS:
-        feats.append(float(summary.get(metric, {}).get(stat, 0.0)))
-    feats.append(float(summary.get("failure_ratio", 0.0)))
-    feats.append(float(summary.get("window_size", 0.0)))
-    return feats
+    return [float(summary.get(name, 0.0)) for name in FEATURE_NAMES]
 
 
 def load_timeseries() -> List[dict]:
@@ -101,10 +108,28 @@ def build_dataset(rows: List[dict]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]
                 "throttle_pos": _stats(win[:, 3]),
                 "fuel_trim": _stats(win[:, 4]),
                 "maf": _stats(win[:, 5]),
-                "failure_ratio": float(win[:, 6].mean()),
-                "window_size": float(WINDOW),
             }
-            x_rows.append(_to_feature_vector(summary))
+            feature_map = {}
+            for sensor in ("engine_rpm", "coolant_temp", "intake_air_temp", "throttle_pos", "fuel_trim", "maf"):
+                stat_obj = summary[sensor]
+                for stat_name in ("latest", "mean", "std", "min", "max", "slope"):
+                    feature_map[f"{sensor}_{stat_name}"] = float(stat_obj.get(stat_name, 0.0))
+
+            feature_map["corr_engine_rpm_coolant_temp"] = _corr(win[:, 0], win[:, 1])
+            feature_map["corr_engine_rpm_throttle_pos"] = _corr(win[:, 0], win[:, 3])
+            feature_map["corr_engine_rpm_maf"] = _corr(win[:, 0], win[:, 5])
+            feature_map["corr_coolant_temp_fuel_trim"] = _corr(win[:, 1], win[:, 4])
+            feature_map["corr_throttle_pos_fuel_trim"] = _corr(win[:, 3], win[:, 4])
+            feature_map["corr_maf_fuel_trim"] = _corr(win[:, 5], win[:, 4])
+
+            feature_map["failure_ratio"] = float(win[:, 6].mean())
+            feature_map["window_seconds"] = float(WINDOW - 1)
+            feature_map["valid_ratio"] = 1.0
+            throttle_mean = float(summary["throttle_pos"]["mean"])
+            feature_map["rpm_to_throttle_mean_ratio"] = (
+                0.0 if abs(throttle_mean) < 1e-6 else float(summary["engine_rpm"]["mean"]) / throttle_mean
+            )
+            x_rows.append(_to_feature_vector(feature_map))
 
             if first_failure is None:
                 y_fail.append(0.0)
