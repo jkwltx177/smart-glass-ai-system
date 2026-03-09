@@ -80,6 +80,7 @@ class RAGQueryResponse(BaseModel):
     explanation: str
     evidence: List[str]
     incident_id: Optional[str] = None
+    predictive_ai: Optional[Dict[str, Any]] = None
 
 # --- D. Predictive ---
 class PredictionRequest(BaseModel):

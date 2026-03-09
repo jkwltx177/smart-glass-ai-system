@@ -41,4 +41,10 @@ async def perform_prediction(request: PredictionRequest, db: Session = Depends(g
 
 @router.post("/feedback")
 async def submit_feedback(incident_id: str, y_true: float):
-    return {"status": "success", "updated_metrics": {"rmse": 4.2}}
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "feedback endpoint is not implemented in demo mode. "
+            "Use /predict for inference only."
+        ),
+    )

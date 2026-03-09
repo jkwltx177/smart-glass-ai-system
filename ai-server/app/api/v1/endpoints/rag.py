@@ -23,6 +23,22 @@ def _strip_markdown_asterisks(text: str) -> str:
     )
 
 
+def _normalize_action_steps(steps: list, explanation: str) -> list[str]:
+    placeholder = "상세 조치 내용은 아래 분석 결과를 확인하세요."
+    cleaned = []
+    for step in steps:
+        s = _strip_markdown_asterisks(step).strip()
+        if not s:
+            continue
+        if s == placeholder:
+            continue
+        if explanation and s in explanation:
+            continue
+        if s not in cleaned:
+            cleaned.append(s)
+    return cleaned
+
+
 @router.post("/query", response_model=RAGQueryResponse)
 async def run_rag_query_with_files(
     audio: UploadFile = File(...),
@@ -97,7 +113,7 @@ async def run_rag_query_with_files(
         final_plan_data = result.get("final_action_plan", {}) or {}
         steps = list(final_plan_data.get("steps", ["기본 점검 수행"]))
         clean_explanation = _strip_markdown_asterisks(result.get("explanation", "결과 분석 중입니다."))
-        clean_steps = [_strip_markdown_asterisks(step) for step in steps]
+        clean_steps = _normalize_action_steps(steps, clean_explanation)
 
         # PDF 보고서가 실제 분석 결과를 반영하도록 incident.description 갱신
         new_incident.description = (
@@ -128,7 +144,10 @@ async def run_rag_query_with_files(
     # 5. 결과 파싱
     final_plan_data = result.get("final_action_plan", {}) or {}
     clean_explanation = _strip_markdown_asterisks(result.get("explanation", "결과 분석 중입니다."))
-    clean_steps = [_strip_markdown_asterisks(step) for step in final_plan_data.get("steps", ["기본 점검 수행"])]
+    clean_steps = _normalize_action_steps(
+        list(final_plan_data.get("steps", ["기본 점검 수행"])),
+        clean_explanation,
+    )
     
     return RAGQueryResponse(
         action_plan=ActionPlan(
@@ -138,5 +157,10 @@ async def run_rag_query_with_files(
         ),
         explanation=clean_explanation,
         evidence=result.get("evidence", []),
-        incident_id=str(incident_id)
+        incident_id=str(incident_id),
+        predictive_ai={
+            "failure_probability": float(result.get("failure_probability", 0.0) or 0.0),
+            "predicted_rul_minutes": float(result.get("predicted_rul", 0.0) or 0.0),
+            "anomaly_score": float(result.get("anomaly_score", 0.0) or 0.0),
+        },
     )

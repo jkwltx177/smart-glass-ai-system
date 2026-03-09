@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 interface HistoryLog {
   id: string
@@ -16,6 +16,18 @@ const emit = defineEmits<{
 const historyLogs = ref<HistoryLog[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+const pageSize = 10
+const currentPage = ref(1)
+
+const totalCount = computed(() => historyLogs.value.length)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize)))
+const paginatedLogs = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return historyLogs.value.slice(start, start + pageSize)
+})
+const showingFrom = computed(() => (totalCount.value === 0 ? 0 : (currentPage.value - 1) * pageSize + 1))
+const showingTo = computed(() => Math.min(currentPage.value * pageSize, totalCount.value))
+const pageNumbers = computed(() => Array.from({ length: totalPages.value }, (_, i) => i + 1))
 
 async function fetchHistory() {
   loading.value = true
@@ -32,12 +44,30 @@ async function fetchHistory() {
       status: item.status,
       latency: '-' // Not provided by real API yet
     }))
+    currentPage.value = 1
   } catch (e) {
     error.value = e instanceof Error ? e.message : '분석 이력을 불러오지 못했습니다.'
     historyLogs.value = []
   } finally {
     loading.value = false
   }
+}
+
+const goPrev = () => {
+  if (currentPage.value > 1) {
+    currentPage.value -= 1
+  }
+}
+
+const goNext = () => {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value += 1
+  }
+}
+
+const goPage = (page: number) => {
+  if (page < 1 || page > totalPages.value) return
+  currentPage.value = page
 }
 
 onMounted(() => fetchHistory())
@@ -94,7 +124,7 @@ onMounted(() => fetchHistory())
               </tr>
             </thead>
             <tbody>
-              <tr v-for="log in historyLogs" :key="log.id">
+              <tr v-for="log in paginatedLogs" :key="log.id">
                 <td class="font-mono">{{ log.id }}</td>
                 <td class="text-muted">{{ log.timestamp }}</td>
                 <td><span class="type-tag">{{ log.type }}</span></td>
@@ -113,12 +143,18 @@ onMounted(() => fetchHistory())
         </div>
 
         <footer class="table-footer">
-          <div class="pagination-info">Showing {{ historyLogs.length }} of {{ historyLogs.length }} entries</div>
+          <div class="pagination-info">Showing {{ showingFrom }}-{{ showingTo }} of {{ totalCount }} entries</div>
           <div class="pagination-controls">
-            <button disabled>Prev</button>
-            <button class="active">1</button>
-            <button>2</button>
-            <button>Next</button>
+            <button :disabled="currentPage === 1" @click="goPrev">Prev</button>
+            <button
+              v-for="page in pageNumbers"
+              :key="page"
+              :class="{ active: currentPage === page }"
+              @click="goPage(page)"
+            >
+              {{ page }}
+            </button>
+            <button :disabled="currentPage === totalPages" @click="goNext">Next</button>
           </div>
         </footer>
       </div>
@@ -277,7 +313,7 @@ onMounted(() => fetchHistory())
 .pagination-controls { display: flex; gap: 4px; }
 .pagination-controls button {
   background: #0f172a; border: 1px solid #334155; color: #94a3b8;
-  width: 32px; height: 32px; border-radius: 2px; cursor: pointer;
+  min-width: 32px; height: 32px; padding: 0 10px; border-radius: 2px; cursor: pointer;
 }
 
 .pagination-controls button.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }

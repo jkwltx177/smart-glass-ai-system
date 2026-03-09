@@ -1,29 +1,93 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.schemas.api_models import ReportResponse
+from app.schemas.reporting import QualityReportResponse, QualityReportSampleResponse
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.domain import Incident, Prediction
-from app.services.reporting.report_generator import generate_pdf_report
+from app.services.reporting.report_generator import (
+    generate_fallback_report_bundle,
+    generate_quality_report_bundle,
+    sample_quality_report,
+)
 import os
 
 router = APIRouter()
 
-@router.post("/quality", response_model=ReportResponse)
+@router.post("/quality", response_model=QualityReportResponse)
 async def generate_quality_report(incident_id: int, db: Session = Depends(get_db)):
     try:
-        pdf_path = generate_pdf_report(incident_id, db)
-        
-        # 실제 환경에서는 S3 URL이나 정적 파일 서빙 URL로 변환해야 함
-        # 여기서는 로컬 저장 경로를 반환
-        return ReportResponse(
+        report, pdf_path, html_path = generate_quality_report_bundle(incident_id, db)
+        return QualityReportResponse(
             report_url=f"/static/reports/{os.path.basename(pdf_path)}",
-            summary=f"Incident {incident_id} 건에 대한 정밀 분석 보고서 생성 완료"
+            html_report_url=f"/static/reports/{os.path.basename(html_path)}",
+            summary=f"Incident {incident_id} quality report generated",
+            report=report,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+        # Safety net: even when rich report generation fails, always return a usable response.
+        try:
+            fallback_report, fallback_pdf_path, fallback_html_path = generate_fallback_report_bundle(
+                incident_id=incident_id,
+                reason=str(e),
+            )
+            return QualityReportResponse(
+                report_url=f"/static/reports/{os.path.basename(fallback_pdf_path)}",
+                html_report_url=f"/static/reports/{os.path.basename(fallback_html_path)}",
+                summary=f"Incident {incident_id} fallback quality report generated (engineer review required)",
+                report=fallback_report,
+            )
+        except Exception as fallback_error:
+            sample = sample_quality_report()
+            emergency_report = sample.model_copy(
+                update={
+                    "header": sample.header.model_copy(
+                        update={
+                            "incident_id": str(incident_id),
+                            "status": "EMERGENCY_FALLBACK",
+                            "generated_at": datetime.utcnow(),
+                        }
+                    ),
+                    "incident_summary": sample.incident_summary.model_copy(
+                        update={
+                            "issue_title": f"Emergency fallback report for incident_id={incident_id}",
+                            "symptom_summary": f"quality report generation failed: {str(e)} / fallback failed: {str(fallback_error)}",
+                        }
+                    ),
+                }
+            )
+            os.makedirs(settings.REPORT_OUTPUT_DIR, exist_ok=True)
+            stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            emergency_html_name = f"quality_incident_report_emergency_{incident_id}_{stamp}.html"
+            emergency_html_path = os.path.join(settings.REPORT_OUTPUT_DIR, emergency_html_name)
+            with open(emergency_html_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "<!doctype html><html><head><meta charset='utf-8'><title>Emergency Fallback Report</title></head>"
+                    "<body style='font-family:Arial;padding:20px'>"
+                    "<h1>Emergency Fallback Report</h1>"
+                    f"<p>incident_id={incident_id}</p>"
+                    f"<p>report generation failed: {str(e)}</p>"
+                    f"<p>fallback generation failed: {str(fallback_error)}</p>"
+                    "<p>Engineer review required.</p>"
+                    "</body></html>"
+                )
+            return QualityReportResponse(
+                report_url=f"/static/reports/{emergency_html_name}",
+                html_report_url=f"/static/reports/{emergency_html_name}",
+                summary="Emergency fallback report returned (engineer review required)",
+                report=emergency_report,
+            )
+
+
+@router.get("/quality/sample", response_model=QualityReportSampleResponse)
+async def get_quality_report_sample():
+    return QualityReportSampleResponse(
+        report=sample_quality_report(),
+        generated_at=datetime.utcnow(),
+    )
 
 @router.post("/aiops", response_model=ReportResponse)
 async def generate_aiops_report(db: Session = Depends(get_db)):

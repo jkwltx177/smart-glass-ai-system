@@ -32,6 +32,22 @@ def _strip_markdown_asterisks(text: str) -> str:
     )
 
 
+def _normalize_action_steps(steps: List[str], explanation: str) -> List[str]:
+    placeholder = "상세 조치 내용은 아래 분석 결과를 확인하세요."
+    cleaned: List[str] = []
+    for step in steps:
+        s = _strip_markdown_asterisks(step).strip()
+        if not s:
+            continue
+        if s == placeholder:
+            continue
+        if explanation and s in explanation:
+            continue
+        if s not in cleaned:
+            cleaned.append(s)
+    return cleaned
+
+
 def _persist_asset(
     db: Session,
     incident_id: int,
@@ -183,7 +199,10 @@ async def analyze_diagnostic(
     reference_docs = _to_reference_docs(result.get("rag_retrieved_docs", []), top_k=max(1, rag_top_k))
     pipeline_fallbacks = list(result.get("pipeline_fallbacks", []))
     clean_answer = _strip_markdown_asterisks(str(result.get("explanation", "")))
-    clean_steps = [_strip_markdown_asterisks(step) for step in list(action_plan.get("steps", ["기본 점검 수행"]))]
+    clean_steps = _normalize_action_steps(
+        list(action_plan.get("steps", ["기본 점검 수행"])),
+        clean_answer,
+    )
 
     # PDF 보고서 생성 시 최신 설명/조치가 반영되도록 description 갱신
     incident.description = (

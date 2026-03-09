@@ -5,6 +5,11 @@ const props = defineProps<{
   ragLoading: boolean
   ragMessage: string
   incidentId: string | null
+  predictiveSummary: {
+    failure_probability: number
+    predicted_rul_minutes: number
+    anomaly_score: number
+  } | null
 }>()
 
 const emit = defineEmits<{
@@ -16,7 +21,7 @@ const emit = defineEmits<{
 
 const selectedImage = ref<File | null>(null)
 const selectedAudio = ref<File | null>(null)
-const equipmentId = ref('DEV-MAF-01')
+const equipmentId = ref('')
 const deviceOptions = ref<Array<{ device_id: string; device_name?: string }>>([])
 const devicesLoading = ref(false)
 const devicesError = ref('')
@@ -24,9 +29,9 @@ const showAddDevice = ref(false)
 const addDeviceLoading = ref(false)
 const newDeviceId = ref('')
 const newDeviceName = ref('')
-const newVehicleType = ref('Unknown')
-const newLineOrSite = ref('Unknown Line')
-const newLocation = ref('Unknown Location')
+const newVehicleType = ref('')
+const newLineOrSite = ref('')
+const newLocation = ref('')
 const reportGenerating = ref(false)
 const previewUrl = ref<string | null>(null)
 const mobileCode = ref('')
@@ -38,17 +43,117 @@ const mobileStatusError = ref('')
 const mobileStatusLoading = ref(false)
 const mobilePollingId = ref<number | null>(null)
 const lastMobileResultId = ref('')
-const mobileHost = ref(localStorage.getItem('mobileHostOverride') || '')
+const ACCESS_TOKEN_STORAGE_KEY = 'accessToken'
+const TOKEN_TYPE_STORAGE_KEY = 'tokenType'
+const getUserStorageSuffix = () => {
+  const token = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
+  if (!token) return 'anon'
+  try {
+    const payloadPart = token.split('.')[1] || ''
+    const b64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/')
+    const pad = '='.repeat((4 - (b64.length % 4)) % 4)
+    const json = atob(b64 + pad)
+    const payload = JSON.parse(json)
+    return String(payload?.sub || 'anon')
+  } catch {
+    return 'anon'
+  }
+}
+
+const mobileHostStorageKey = `mobileHostOverride:${getUserStorageSuffix()}`
+const mobileHost = ref(localStorage.getItem(mobileHostStorageKey) || '')
 const mobileQrSrc = computed(() => {
   if (!mobileLink.value) return ''
   return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(mobileLink.value)}`
+})
+const metricCards = computed(() => {
+  if (!props.predictiveSummary) return []
+  const fp = Math.max(0, Math.min(1, Number(props.predictiveSummary.failure_probability || 0)))
+  const an = Math.max(0, Math.min(1, Number(props.predictiveSummary.anomaly_score || 0)))
+  const rulRaw = Math.max(0, Number(props.predictiveSummary.predicted_rul_minutes || 0))
+  const rulMax = 1440
+  const rulRatio = Math.max(0, Math.min(1, rulRaw / rulMax))
+
+  return [
+    {
+      key: 'failure',
+      label: 'Failure Probability',
+      value: `${(fp * 100).toFixed(1)}%`,
+      ratio: fp,
+      color: '#ef4444',
+    },
+    {
+      key: 'anomaly',
+      label: 'Anomaly Score',
+      value: `${(an * 100).toFixed(1)}%`,
+      ratio: an,
+      color: '#f59e0b',
+    },
+    {
+      key: 'rul',
+      label: 'Predicted RUL',
+      value: `${rulRaw.toFixed(1)} min`,
+      ratio: rulRatio,
+      color: '#10b981',
+    },
+  ]
+})
+
+type TelemetryRow = {
+  timestamp: string
+  engine_rpm: number | null
+  coolant_temp: number | null
+  maf: number | null
+}
+
+const telemetryRows = ref<TelemetryRow[]>([])
+const liveRows = ref<TelemetryRow[]>([])
+const telemetryLoading = ref(false)
+const telemetryError = ref('')
+const streamActive = ref(false)
+let streamTimerId: number | null = null
+
+const chartPoints = computed(() => {
+  const rows = liveRows.value.slice(-48)
+  if (!rows.length) {
+    return {
+      rpm: '',
+      temp: '',
+      maf: '',
+      last: null as TelemetryRow | null,
+    }
+  }
+
+  const width = 760
+  const height = 220
+  const maxRpm = Math.max(...rows.map((r) => Number(r.engine_rpm || 0)), 5000)
+  const maxTemp = Math.max(...rows.map((r) => Number(r.coolant_temp || 0)), 120)
+  const maxMaf = Math.max(...rows.map((r) => Number(r.maf || 0)), 80)
+
+  const makePath = (selector: (row: TelemetryRow) => number | null, maxValue: number) => {
+    const len = rows.length
+    return rows
+      .map((row, idx) => {
+        const value = selector(row) ?? 0
+        const x = len <= 1 ? 0 : (idx / (len - 1)) * width
+        const y = height - (Math.max(0, Math.min(maxValue, value)) / maxValue) * height
+        return `${x.toFixed(1)},${y.toFixed(1)}`
+      })
+      .join(' ')
+  }
+
+  return {
+    rpm: makePath((r) => r.engine_rpm, maxRpm),
+    temp: makePath((r) => r.coolant_temp, maxTemp),
+    maf: makePath((r) => r.maf, maxMaf),
+    last: rows[rows.length - 1] ?? null,
+  }
 })
 
 const isRecording = ref(false)
 let mediaRecorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
-const ACCESS_TOKEN_STORAGE_KEY = 'accessToken'
-const TOKEN_TYPE_STORAGE_KEY = 'tokenType'
+let telemetryLoadDebounceId: number | null = null
 
 const getAuthHeaders = (): Record<string, string> => {
   const accessToken = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
@@ -85,8 +190,12 @@ const startMobileSession = async () => {
     const response = await fetch('/api/mobile/session/start', {
       method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         ...getAuthHeaders(),
       },
+      body: JSON.stringify({
+        equipment_id: equipmentId.value.trim() || undefined,
+      }),
     })
     if (!response.ok) {
       throw new Error(`세션 생성 실패 (${response.status})`)
@@ -96,6 +205,24 @@ const startMobileSession = async () => {
     rebuildMobileLink()
   } catch (error) {
     mobileStatusError.value = error instanceof Error ? error.message : '모바일 세션 생성 오류'
+  }
+}
+
+const bindMobileSessionEquipment = async () => {
+  if (!mobileCode.value || !equipmentId.value.trim()) return
+  try {
+    await fetch(`/api/mobile/session/${mobileCode.value}/equipment`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        equipment_id: equipmentId.value.trim(),
+      }),
+    })
+  } catch {
+    // Ignore transient binding failures; polling will keep main flow alive.
   }
 }
 
@@ -156,14 +283,83 @@ const loadDevices = async () => {
       device_name: typeof it.device_name === 'string' ? it.device_name : '',
     })).filter((it: { device_id: string }) => !!it.device_id)
 
-    const firstDevice = deviceOptions.value[0]
-    if (!equipmentId.value && firstDevice) {
-      equipmentId.value = firstDevice.device_id
-    }
   } catch (error) {
     devicesError.value = error instanceof Error ? error.message : '장비 목록 조회 오류'
   } finally {
     devicesLoading.value = false
+  }
+}
+
+const stopTelemetryStream = () => {
+  if (streamTimerId !== null) {
+    window.clearInterval(streamTimerId)
+    streamTimerId = null
+  }
+  streamActive.value = false
+}
+
+const startTelemetryStream = () => {
+  stopTelemetryStream()
+  liveRows.value = []
+  if (!telemetryRows.value.length) return
+  let cursor = 0
+  streamActive.value = true
+  streamTimerId = window.setInterval(() => {
+    if (!telemetryRows.value.length) return
+    const row = telemetryRows.value[cursor]
+    if (!row) return
+    liveRows.value.push(row)
+    if (liveRows.value.length > 60) {
+      liveRows.value.shift()
+    }
+    cursor = (cursor + 1) % telemetryRows.value.length
+  }, 450)
+}
+
+const loadTelemetryForEquipment = async () => {
+  const id = equipmentId.value.trim()
+  telemetryError.value = ''
+  telemetryRows.value = []
+  liveRows.value = []
+  stopTelemetryStream()
+  if (!id) return
+
+  telemetryLoading.value = true
+  try {
+    const primaryUrl = `/api/equipment/${encodeURIComponent(id)}/telemetry/query?limit=240`
+    const fallbackUrl = `/api/equipment/${encodeURIComponent(id)}/telemetry?limit=240`
+    let response = await fetch(primaryUrl, {
+      headers: {
+        ...getAuthHeaders(),
+      },
+    })
+    if (response.status === 404 || response.status === 405) {
+      response = await fetch(fallbackUrl, {
+        headers: {
+          ...getAuthHeaders(),
+        },
+      })
+    }
+    if (!response.ok) {
+      throw new Error(`시계열 조회 실패 (${response.status})`)
+    }
+    const data = await response.json()
+    const items = Array.isArray(data?.items) ? data.items : []
+    telemetryRows.value = items.map((row: any) => ({
+      timestamp: String(row?.timestamp ?? ''),
+      engine_rpm: row?.engine_rpm == null ? null : Number(row.engine_rpm),
+      coolant_temp: row?.coolant_temp == null ? null : Number(row.coolant_temp),
+      maf: row?.maf == null ? null : Number(row.maf),
+    }))
+    if (!telemetryRows.value.length) {
+      telemetryError.value = '선택 장비의 시계열 데이터가 없습니다.'
+      return
+    }
+    startTelemetryStream()
+  } catch (error) {
+    telemetryError.value = error instanceof Error ? error.message : '시계열 조회 오류'
+  } finally {
+    telemetryLoading.value = false
   }
 }
 
@@ -184,9 +380,9 @@ const addDevice = async () => {
       body: JSON.stringify({
         device_id: newDeviceId.value.trim(),
         device_name: newDeviceName.value.trim(),
-        vehicle_type: newVehicleType.value.trim() || 'Unknown',
-        line_or_site: newLineOrSite.value.trim() || 'Unknown Line',
-        location: newLocation.value.trim() || 'Unknown Location',
+        vehicle_type: newVehicleType.value.trim(),
+        line_or_site: newLineOrSite.value.trim(),
+        location: newLocation.value.trim(),
       }),
     })
     if (!response.ok) {
@@ -204,6 +400,9 @@ const addDevice = async () => {
     showAddDevice.value = false
     newDeviceId.value = ''
     newDeviceName.value = ''
+    newVehicleType.value = ''
+    newLineOrSite.value = ''
+    newLocation.value = ''
   } catch (error) {
     devicesError.value = error instanceof Error ? error.message : '장비 추가 오류'
   } finally {
@@ -218,11 +417,23 @@ const generateReport = async () => {
     const response = await fetch(`/api/report/quality?incident_id=${props.incidentId}`, {
       method: 'POST'
     })
-    if (!response.ok) throw new Error('Failed to generate report')
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`
+      try {
+        const data = await response.json()
+        if (typeof data?.detail === 'string' && data.detail) {
+          detail = `${detail} - ${data.detail}`
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(detail)
+    }
     const data = await response.json()
     return data.report_url
   } catch (e) {
-    alert('보고서 생성 중 오류가 발생했습니다.')
+    const msg = e instanceof Error ? e.message : 'Unknown error'
+    alert(`보고서 생성 중 오류가 발생했습니다: ${msg}`)
     return null
   } finally {
     reportGenerating.value = false
@@ -293,7 +504,7 @@ const onSubmit = () => {
   emit('submit', {
     imageFile: selectedImage.value,
     audioFile: selectedAudio.value,
-    equipmentId: equipmentId.value.trim() || 'DEV-MAF-01',
+    equipmentId: equipmentId.value.trim(),
   })
 }
 
@@ -307,6 +518,11 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopTelemetryStream()
+  if (telemetryLoadDebounceId !== null) {
+    window.clearTimeout(telemetryLoadDebounceId)
+    telemetryLoadDebounceId = null
+  }
   if (mobilePollingId.value !== null) {
     window.clearInterval(mobilePollingId.value)
     mobilePollingId.value = null
@@ -314,8 +530,18 @@ onUnmounted(() => {
 })
 
 watch(mobileHost, (value) => {
-  localStorage.setItem('mobileHostOverride', value)
+  localStorage.setItem(mobileHostStorageKey, value)
   rebuildMobileLink()
+})
+
+watch(equipmentId, () => {
+  bindMobileSessionEquipment()
+  if (telemetryLoadDebounceId !== null) {
+    window.clearTimeout(telemetryLoadDebounceId)
+  }
+  telemetryLoadDebounceId = window.setTimeout(() => {
+    loadTelemetryForEquipment()
+  }, 350)
 })
 </script>
 
@@ -345,175 +571,230 @@ watch(mobileHost, (value) => {
           </p>
         </header>
 
-        <div class="form-structure">
-          <div class="upload-slot">
-            <div class="slot-header">
-              <label class="slot-label">Mobile Bridge</label>
-              <span class="slot-ext status-required">{{ mobileConnected ? 'Connected' : 'Waiting for mobile' }}</span>
-            </div>
-            <div class="equipment-panel">
-              <div class="mobile-meta-line"><strong>Pair Code:</strong> {{ mobileCode || 'N/A' }}</div>
-              <div class="mobile-meta-line">
-                <strong>Mobile Host(IP:Port):</strong>
-                <input
-                  class="mobile-host-input"
-                  v-model="mobileHost"
-                  type="text"
-                  placeholder="예: 192.168.0.12:5173"
-                />
-              </div>
-              <div class="mobile-meta-line"><strong>Mobile URL:</strong> <a :href="mobileLink" target="_blank">{{ mobileLink }}</a></div>
-              <p v-if="!mobileLink" class="device-error">
-                현재 PC가 localhost로 열려 있습니다. 모바일 접속용 IP:PORT를 입력하세요.
-              </p>
-              <div v-if="mobileQrSrc" class="qr-wrap">
-                <img :src="mobileQrSrc" alt="Mobile URL QR" class="qr-image" />
-                <p class="qr-caption">스마트폰 카메라로 QR을 스캔해 접속</p>
-              </div>
-              <div class="mobile-meta-line"><strong>Device:</strong> {{ mobileDeviceLabel || '-' }}</div>
-              <div class="mobile-meta-line"><strong>Last Seen:</strong> {{ mobileLastSeen || '-' }}</div>
-              <div class="equipment-actions">
-                <button class="action-btn-inline" type="button" @click="startMobileSession">New Code</button>
-                <button class="action-btn-inline" type="button" :disabled="mobileStatusLoading" @click="pollMobileStatus">
-                  {{ mobileStatusLoading ? 'Checking...' : 'Refresh Status' }}
-                </button>
-              </div>
-              <p v-if="mobileStatusError" class="device-error">{{ mobileStatusError }}</p>
-            </div>
-          </div>
-
-          <div class="upload-slot">
-            <div class="slot-header">
-              <label class="slot-label">Equipment ID</label>
-              <span class="slot-ext status-required">Required</span>
-            </div>
-            <div class="equipment-panel">
-              <input
-                class="equipment-input"
-                v-model="equipmentId"
-                list="equipment-id-options"
-                type="text"
-                placeholder="장비를 선택하거나 ID 입력"
-                required
-                @focus="loadDevices"
-              />
-              <datalist id="equipment-id-options">
-                <option v-for="item in deviceOptions" :key="item.device_id" :value="item.device_id">
-                  {{ item.device_name || item.device_id }}
-                </option>
-              </datalist>
-
-              <div class="equipment-actions">
-                <button class="action-btn-inline" type="button" @click="showAddDevice = !showAddDevice">
-                  {{ showAddDevice ? 'Cancel' : 'Add New Device' }}
-                </button>
-                <button class="action-btn-inline" type="button" @click="loadDevices" :disabled="devicesLoading">
-                  {{ devicesLoading ? 'Loading...' : 'Refresh' }}
-                </button>
-              </div>
-
-              <div v-if="showAddDevice" class="device-create-form">
-                <input v-model="newDeviceId" type="text" placeholder="device_id (예: DEV-NEW-01)" />
-                <input v-model="newDeviceName" type="text" placeholder="device_name" />
-                <input v-model="newVehicleType" type="text" placeholder="vehicle_type" />
-                <input v-model="newLineOrSite" type="text" placeholder="line_or_site" />
-                <input v-model="newLocation" type="text" placeholder="location" />
-                <button class="action-btn-inline primary" type="button" :disabled="addDeviceLoading" @click="addDevice">
-                  {{ addDeviceLoading ? 'Saving...' : 'Save Device' }}
-                </button>
-              </div>
-
-              <p v-if="devicesError" class="device-error">{{ devicesError }}</p>
-            </div>
-          </div>
-
-          <div class="upload-slot">
-            <div class="slot-header">
-              <label class="slot-label">Visual Reference</label>
-              <span class="slot-ext">Optional / Image Files</span>
-            </div>
-            <div class="drop-container" :class="{ 'file-active': selectedImage }">
-              <input type="file" accept="image/*" @change="onImageChange" />
-              <div class="drop-placeholder">
-                <span class="placeholder-text">
-                  {{ selectedImage ? selectedImage.name : 'Select or drag visual data' }}
-                </span>
-                <span class="placeholder-sub" v-if="!selectedImage">Recommended: High-resolution JPG or PNG</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="upload-slot">
-            <div class="slot-header">
-              <label class="slot-label">Audio Query</label>
-              <span class="slot-ext status-required">Required / Record or Upload</span>
-            </div>
-            
-            <div class="audio-controls">
-              <button class="record-btn" :class="{ 'is-recording': isRecording }" @click="toggleRecording">
-                <span class="record-icon"></span>
-                {{ isRecording ? 'Stop Recording' : 'Start Recording' }}
-              </button>
-
-              <div class="drop-container highlight-border" :class="{ 'file-active': selectedAudio }">
-                <input type="file" accept="audio/*" @change="onAudioChange" />
-                <div class="drop-placeholder">
-                  <span class="placeholder-text">
-                    {{ selectedAudio ? selectedAudio.name : 'Or upload inquiry audio file' }}
-                  </span>
-                  <span class="placeholder-sub" v-if="!selectedAudio">Sampling rate: 16kHz or higher recommended</span>
+        <div class="rag-layout">
+          <div class="form-column">
+            <div class="form-structure">
+              <div class="upload-slot">
+                <div class="slot-header">
+                  <label class="slot-label">Mobile Bridge</label>
+                  <span class="slot-ext status-required">{{ mobileConnected ? 'Connected' : 'Waiting for mobile' }}</span>
+                </div>
+                <div class="equipment-panel">
+                  <div class="mobile-meta-line"><strong>Pair Code:</strong> {{ mobileCode || 'N/A' }}</div>
+                  <div class="mobile-meta-line">
+                    <strong>Mobile Host(IP:Port):</strong>
+                    <input
+                      class="mobile-host-input"
+                      v-model="mobileHost"
+                      type="text"
+                      placeholder="예: 192.168.0.12:5173"
+                    />
+                  </div>
+                  <div class="mobile-meta-line"><strong>Mobile URL:</strong> <a :href="mobileLink" target="_blank">{{ mobileLink }}</a></div>
+                  <p v-if="!mobileLink" class="device-error">
+                    현재 PC가 localhost로 열려 있습니다. 모바일 접속용 IP:PORT를 입력하세요.
+                  </p>
+                  <div v-if="mobileQrSrc" class="qr-wrap">
+                    <img :src="mobileQrSrc" alt="Mobile URL QR" class="qr-image" />
+                    <p class="qr-caption">스마트폰 카메라로 QR을 스캔해 접속</p>
+                  </div>
+                  <div class="mobile-meta-line"><strong>Device:</strong> {{ mobileDeviceLabel || '-' }}</div>
+                  <div class="mobile-meta-line"><strong>Last Seen:</strong> {{ mobileLastSeen || '-' }}</div>
+                  <div class="equipment-actions">
+                    <button class="action-btn-inline" type="button" @click="startMobileSession">New Code</button>
+                    <button class="action-btn-inline" type="button" :disabled="mobileStatusLoading" @click="pollMobileStatus">
+                      {{ mobileStatusLoading ? 'Checking...' : 'Refresh Status' }}
+                    </button>
+                  </div>
+                  <p v-if="mobileStatusError" class="device-error">{{ mobileStatusError }}</p>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div class="action-footer">
-            <button 
-              class="primary-execute-btn" 
-              :disabled="props.ragLoading || !selectedAudio" 
-              @click="onSubmit"
-            >
-              <div v-if="props.ragLoading" class="spinner"></div>
-              <span>{{ props.ragLoading ? 'Processing Request' : 'Execute Analysis' }}</span>
-            </button>
-          </div>
-        </div>
+              <div class="upload-slot">
+                <div class="slot-header">
+                  <label class="slot-label">Equipment ID</label>
+                  <span class="slot-ext status-required">Required</span>
+                </div>
+                <div class="equipment-panel">
+                  <input
+                    class="equipment-input"
+                    v-model="equipmentId"
+                    list="equipment-id-options"
+                    type="text"
+                    placeholder="장비를 선택하거나 ID 입력"
+                    required
+                    @focus="loadDevices"
+                    @change="loadTelemetryForEquipment"
+                  />
+                  <datalist id="equipment-id-options">
+                    <option v-for="item in deviceOptions" :key="item.device_id" :value="item.device_id">
+                      {{ item.device_name || item.device_id }}
+                    </option>
+                  </datalist>
 
-        <transition name="report-fade">
-          <div v-if="props.ragMessage" class="report-area">
-            <div class="report-header">
-              <span class="report-tag">Inference Result</span>
-              <div class="report-actions">
+                  <div class="equipment-actions">
+                    <button class="action-btn-inline" type="button" @click="showAddDevice = !showAddDevice">
+                      {{ showAddDevice ? 'Cancel' : 'Add New Device' }}
+                    </button>
+                    <button class="action-btn-inline" type="button" @click="loadDevices" :disabled="devicesLoading">
+                      {{ devicesLoading ? 'Loading...' : 'Refresh' }}
+                    </button>
+                  </div>
+
+                  <div v-if="showAddDevice" class="device-create-form">
+                    <input v-model="newDeviceId" type="text" placeholder="device_id (예: DEV-NEW-01)" />
+                    <input v-model="newDeviceName" type="text" placeholder="device_name" />
+                    <input v-model="newVehicleType" type="text" placeholder="vehicle_type" />
+                    <input v-model="newLineOrSite" type="text" placeholder="line_or_site" />
+                    <input v-model="newLocation" type="text" placeholder="location" />
+                    <button class="action-btn-inline primary" type="button" :disabled="addDeviceLoading" @click="addDevice">
+                      {{ addDeviceLoading ? 'Saving...' : 'Save Device' }}
+                    </button>
+                  </div>
+
+                  <p v-if="devicesError" class="device-error">{{ devicesError }}</p>
+                </div>
+              </div>
+
+              <div class="upload-slot">
+                <div class="slot-header">
+                  <label class="slot-label">Visual Reference</label>
+                  <span class="slot-ext">Optional / Image Files</span>
+                </div>
+                <div class="drop-container" :class="{ 'file-active': selectedImage }">
+                  <input type="file" accept="image/*" @change="onImageChange" />
+                  <div class="drop-placeholder">
+                    <span class="placeholder-text">
+                      {{ selectedImage ? selectedImage.name : 'Select or drag visual data' }}
+                    </span>
+                    <span class="placeholder-sub" v-if="!selectedImage">Recommended: High-resolution JPG or PNG</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="upload-slot">
+                <div class="slot-header">
+                  <label class="slot-label">Audio Query</label>
+                  <span class="slot-ext status-required">Required / Record or Upload</span>
+                </div>
+                
+                <div class="audio-controls">
+                  <button class="record-btn" :class="{ 'is-recording': isRecording }" @click="toggleRecording">
+                    <span class="record-icon"></span>
+                    {{ isRecording ? 'Stop Recording' : 'Start Recording' }}
+                  </button>
+
+                  <div class="drop-container highlight-border" :class="{ 'file-active': selectedAudio }">
+                    <input type="file" accept="audio/*" @change="onAudioChange" />
+                    <div class="drop-placeholder">
+                      <span class="placeholder-text">
+                        {{ selectedAudio ? selectedAudio.name : 'Or upload inquiry audio file' }}
+                      </span>
+                      <span class="placeholder-sub" v-if="!selectedAudio">Sampling rate: 16kHz or higher recommended</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="action-footer">
                 <button 
-                  v-if="props.incidentId" 
-                  @click="previewReport" 
-                  class="action-btn" 
-                  :disabled="reportGenerating"
+                  class="primary-execute-btn" 
+                  :disabled="props.ragLoading || !selectedAudio" 
+                  @click="onSubmit"
                 >
-                  <span v-if="reportGenerating" class="spinner-small"></span>
-                  {{ previewUrl ? 'Hide Preview' : '👁️ Preview PDF' }}
+                  <div v-if="props.ragLoading" class="spinner"></div>
+                  <span>{{ props.ragLoading ? 'Processing Request' : 'Execute Analysis' }}</span>
                 </button>
-                <button 
-                  v-if="props.incidentId" 
-                  @click="downloadReport" 
-                  class="action-btn" 
-                  :disabled="reportGenerating"
-                >
-                  <span v-if="reportGenerating" class="spinner-small"></span>
-                  📄 Download
-                </button>
-                <span class="timestamp">2026-03-06 | Admin-01</span>
               </div>
             </div>
-            <div class="report-body">
-              {{ props.ragMessage }}
-            </div>
-            
-            <div v-if="previewUrl" class="pdf-preview-container">
-              <iframe :src="previewUrl" class="pdf-iframe"></iframe>
-            </div>
           </div>
-        </transition>
+
+          <div class="result-column">
+            <section class="timeseries-panel">
+              <div class="timeseries-head">
+                <div>
+                  <div class="report-tag">AEC-Q Live Time-series (Demo)</div>
+                  <p class="timeseries-sub">장비 선택 시 DB 데이터를 로드한 뒤 실시간 입력처럼 재생합니다.</p>
+                </div>
+                <button class="action-btn-inline" type="button" :disabled="telemetryLoading || !telemetryRows.length" @click="startTelemetryStream">
+                  {{ telemetryLoading ? 'Loading...' : 'Replay' }}
+                </button>
+              </div>
+              <div class="timeseries-chart-wrap">
+                <svg viewBox="0 0 760 220" class="timeseries-chart">
+                  <polyline v-if="chartPoints.rpm" :points="chartPoints.rpm" class="line-rpm" />
+                  <polyline v-if="chartPoints.temp" :points="chartPoints.temp" class="line-temp" />
+                  <polyline v-if="chartPoints.maf" :points="chartPoints.maf" class="line-maf" />
+                </svg>
+                <div class="timeseries-legend">
+                  <span><i class="dot rpm"></i>RPM</span>
+                  <span><i class="dot temp"></i>Coolant Temp</span>
+                  <span><i class="dot maf"></i>MAF</span>
+                  <span class="live-indicator" :class="{ active: streamActive }">{{ streamActive ? 'LIVE' : 'PAUSED' }}</span>
+                </div>
+                <div v-if="chartPoints.last" class="timeseries-stats">
+                  <span>RPM {{ (chartPoints.last.engine_rpm ?? 0).toFixed(0) }}</span>
+                  <span>TEMP {{ (chartPoints.last.coolant_temp ?? 0).toFixed(1) }}°C</span>
+                  <span>MAF {{ (chartPoints.last.maf ?? 0).toFixed(1) }} g/s</span>
+                </div>
+                <p v-if="telemetryError" class="device-error">{{ telemetryError }}</p>
+              </div>
+            </section>
+            <transition name="report-fade">
+              <div v-if="props.ragMessage" class="report-area">
+                <div class="report-header">
+                  <span class="report-tag">Inference Result</span>
+                  <div class="report-actions">
+                    <button 
+                      v-if="props.incidentId" 
+                      @click="previewReport" 
+                      class="action-btn" 
+                      :disabled="reportGenerating"
+                    >
+                      <span v-if="reportGenerating" class="spinner-small"></span>
+                      {{ previewUrl ? 'Hide Preview' : '👁️ Preview PDF' }}
+                    </button>
+                    <button 
+                      v-if="props.incidentId" 
+                      @click="downloadReport" 
+                      class="action-btn" 
+                      :disabled="reportGenerating"
+                    >
+                      <span v-if="reportGenerating" class="spinner-small"></span>
+                      📄 Download
+                    </button>
+                    <span class="timestamp">2026-03-06 | Admin-01</span>
+                  </div>
+                </div>
+                <div v-if="metricCards.length > 0" class="inference-metrics">
+                  <div v-for="metric in metricCards" :key="metric.key" class="metric-card">
+                    <div class="metric-top">
+                      <span class="metric-label">{{ metric.label }}</span>
+                      <span class="metric-value">{{ metric.value }}</span>
+                    </div>
+                    <div class="metric-rail">
+                      <div
+                        class="metric-fill"
+                        :style="{ width: `${(metric.ratio * 100).toFixed(1)}%`, background: metric.color }"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="report-body">
+                  {{ props.ragMessage }}
+                </div>
+                
+                <div v-if="previewUrl" class="pdf-preview-container">
+                  <iframe :src="previewUrl" class="pdf-iframe"></iframe>
+                </div>
+              </div>
+              <div v-else class="report-area empty-report">
+                <span class="report-tag">Inference Result</span>
+                <p>분석 실행 후 결과가 이 영역에 표시됩니다.</p>
+              </div>
+            </transition>
+          </div>
+        </div>
       </div>
     </section>
   </main>
@@ -528,8 +809,8 @@ watch(mobileHost, (value) => {
   font-family: 'Inter', -apple-system, sans-serif;
   display: flex;
   justify-content: center;
-  align-items: center;
-  padding: 40px 20px;
+  align-items: flex-start;
+  padding: 24px 20px 40px;
   position: relative;
 }
 
@@ -543,7 +824,7 @@ watch(mobileHost, (value) => {
 
 .console-wrapper {
   width: 100%;
-  max-width: 800px;
+  max-width: 1400px;
   z-index: 10;
   min-width: 0;
 }
@@ -601,6 +882,109 @@ watch(mobileHost, (value) => {
 
 .module-title { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 16px; }
 .module-description { color: #94a3b8; font-size: 15px; line-height: 1.6; }
+
+.rag-layout {
+  display: grid;
+  grid-template-columns: minmax(460px, 0.88fr) minmax(560px, 1.22fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.form-column,
+.result-column {
+  min-width: 0;
+}
+
+.timeseries-panel {
+  border: 1px solid #1f2937;
+  border-radius: 4px;
+  background: #0a0d12;
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+.timeseries-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.timeseries-sub {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.timeseries-chart-wrap {
+  border: 1px solid #1f2937;
+  border-radius: 4px;
+  padding: 10px;
+  background: #07090d;
+}
+
+.timeseries-chart {
+  width: 100%;
+  height: 220px;
+  display: block;
+}
+
+.line-rpm,
+.line-temp,
+.line-maf {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.line-rpm { stroke: #60a5fa; }
+.line-temp { stroke: #f59e0b; }
+.line-maf { stroke: #34d399; }
+
+.timeseries-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.dot.rpm { background: #60a5fa; }
+.dot.temp { background: #f59e0b; }
+.dot.maf { background: #34d399; }
+
+.live-indicator {
+  margin-left: auto;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.live-indicator.active {
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.timeseries-stats {
+  margin-top: 10px;
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: #e2e8f0;
+}
 
 /* Form Elements */
 .upload-slot { margin-bottom: 32px; }
@@ -811,7 +1195,11 @@ watch(mobileHost, (value) => {
 
 /* Report Section */
 .report-area {
-  margin-top: 48px; padding-top: 40px; border-top: 1px solid #1f2937;
+  border: 1px solid #1f2937;
+  border-radius: 4px;
+  background: #0a0d12;
+  padding: 22px;
+  min-height: 320px;
 }
 
 .report-header {
@@ -837,11 +1225,60 @@ watch(mobileHost, (value) => {
 
 .report-tag { font-size: 11px; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.05em; }
 .timestamp { font-size: 11px; color: #475569; }
+.empty-report p {
+  margin: 14px 0 0;
+  font-size: 14px;
+  color: #94a3b8;
+}
 
 .report-body {
   font-size: 15px; line-height: 1.8; color: #cbd5e1;
   background: #0a0c10; padding: 24px; border-radius: 2px;
   white-space: pre-wrap; /* 이 부분을 추가하여 줄바꿈을 유지합니다 */
+}
+
+.inference-metrics {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.metric-card {
+  border: 1px solid #1f2937;
+  border-radius: 4px;
+  background: #0b0f16;
+  padding: 10px 12px;
+}
+
+.metric-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.metric-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.metric-rail {
+  height: 8px;
+  border-radius: 999px;
+  background: #1f2937;
+  overflow: hidden;
+}
+
+.metric-fill {
+  height: 100%;
+  border-radius: 999px;
 }
 
 .pdf-preview-container {
@@ -874,6 +1311,20 @@ watch(mobileHost, (value) => {
 @media (max-width: 900px) {
   .analysis-module {
     padding: 28px 18px;
+  }
+
+  .rag-layout {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .timeseries-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .timeseries-stats {
+    flex-wrap: wrap;
   }
 
   .device-create-form {

@@ -65,7 +65,8 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다.");
         }
 
-        String token = jwtTokenProvider.createToken(user.getUsername());
+        String role = resolveProjectRole(user.getUsername());
+        String token = jwtTokenProvider.createToken(user.getUsername(), role);
         return new LoginResponse(token, "Bearer", jwtTokenProvider.getExpiresInSeconds());
     }
 
@@ -113,5 +114,21 @@ public class AuthService {
                 username,
                 encodedPassword
         );
+    }
+
+    private String resolveProjectRole(String username) {
+        try {
+            String role = jdbcTemplate.queryForObject(
+                    "SELECT role FROM users WHERE username = ? LIMIT 1",
+                    String.class,
+                    username
+            );
+            if (role == null || role.isBlank()) {
+                return "FIELD_OPERATOR";
+            }
+            return role;
+        } catch (Exception ignored) {
+            return "FIELD_OPERATOR";
+        }
     }
 }

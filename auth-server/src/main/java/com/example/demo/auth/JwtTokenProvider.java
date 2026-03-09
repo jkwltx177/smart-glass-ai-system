@@ -23,12 +23,13 @@ public class JwtTokenProvider {
         this.expirationMs = expirationMs;
     }
 
-    public String createToken(String username) {
+    public String createToken(String username, String role) {
         Instant now = Instant.now();
         Instant expiresAt = now.plusMillis(expirationMs);
 
         return Jwts.builder()
                 .subject(username)
+                .claim("role", role)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiresAt))
                 .signWith(signingKey)
