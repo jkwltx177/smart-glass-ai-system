@@ -99,9 +99,61 @@ const metricCards = computed(() => {
   ]
 })
 
+type TelemetryRow = {
+  timestamp: string
+  engine_rpm: number | null
+  coolant_temp: number | null
+  maf: number | null
+}
+
+const telemetryRows = ref<TelemetryRow[]>([])
+const liveRows = ref<TelemetryRow[]>([])
+const telemetryLoading = ref(false)
+const telemetryError = ref('')
+const streamActive = ref(false)
+let streamTimerId: number | null = null
+
+const chartPoints = computed(() => {
+  const rows = liveRows.value.slice(-48)
+  if (!rows.length) {
+    return {
+      rpm: '',
+      temp: '',
+      maf: '',
+      last: null as TelemetryRow | null,
+    }
+  }
+
+  const width = 760
+  const height = 220
+  const maxRpm = Math.max(...rows.map((r) => Number(r.engine_rpm || 0)), 5000)
+  const maxTemp = Math.max(...rows.map((r) => Number(r.coolant_temp || 0)), 120)
+  const maxMaf = Math.max(...rows.map((r) => Number(r.maf || 0)), 80)
+
+  const makePath = (selector: (row: TelemetryRow) => number | null, maxValue: number) => {
+    const len = rows.length
+    return rows
+      .map((row, idx) => {
+        const value = selector(row) ?? 0
+        const x = len <= 1 ? 0 : (idx / (len - 1)) * width
+        const y = height - (Math.max(0, Math.min(maxValue, value)) / maxValue) * height
+        return `${x.toFixed(1)},${y.toFixed(1)}`
+      })
+      .join(' ')
+  }
+
+  return {
+    rpm: makePath((r) => r.engine_rpm, maxRpm),
+    temp: makePath((r) => r.coolant_temp, maxTemp),
+    maf: makePath((r) => r.maf, maxMaf),
+    last: rows[rows.length - 1] ?? null,
+  }
+})
+
 const isRecording = ref(false)
 let mediaRecorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
+let telemetryLoadDebounceId: number | null = null
 
 const getAuthHeaders = (): Record<string, string> => {
   const accessToken = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
@@ -235,6 +287,79 @@ const loadDevices = async () => {
     devicesError.value = error instanceof Error ? error.message : '장비 목록 조회 오류'
   } finally {
     devicesLoading.value = false
+  }
+}
+
+const stopTelemetryStream = () => {
+  if (streamTimerId !== null) {
+    window.clearInterval(streamTimerId)
+    streamTimerId = null
+  }
+  streamActive.value = false
+}
+
+const startTelemetryStream = () => {
+  stopTelemetryStream()
+  liveRows.value = []
+  if (!telemetryRows.value.length) return
+  let cursor = 0
+  streamActive.value = true
+  streamTimerId = window.setInterval(() => {
+    if (!telemetryRows.value.length) return
+    const row = telemetryRows.value[cursor]
+    if (!row) return
+    liveRows.value.push(row)
+    if (liveRows.value.length > 60) {
+      liveRows.value.shift()
+    }
+    cursor = (cursor + 1) % telemetryRows.value.length
+  }, 450)
+}
+
+const loadTelemetryForEquipment = async () => {
+  const id = equipmentId.value.trim()
+  telemetryError.value = ''
+  telemetryRows.value = []
+  liveRows.value = []
+  stopTelemetryStream()
+  if (!id) return
+
+  telemetryLoading.value = true
+  try {
+    const primaryUrl = `/api/equipment/${encodeURIComponent(id)}/telemetry/query?limit=240`
+    const fallbackUrl = `/api/equipment/${encodeURIComponent(id)}/telemetry?limit=240`
+    let response = await fetch(primaryUrl, {
+      headers: {
+        ...getAuthHeaders(),
+      },
+    })
+    if (response.status === 404 || response.status === 405) {
+      response = await fetch(fallbackUrl, {
+        headers: {
+          ...getAuthHeaders(),
+        },
+      })
+    }
+    if (!response.ok) {
+      throw new Error(`시계열 조회 실패 (${response.status})`)
+    }
+    const data = await response.json()
+    const items = Array.isArray(data?.items) ? data.items : []
+    telemetryRows.value = items.map((row: any) => ({
+      timestamp: String(row?.timestamp ?? ''),
+      engine_rpm: row?.engine_rpm == null ? null : Number(row.engine_rpm),
+      coolant_temp: row?.coolant_temp == null ? null : Number(row.coolant_temp),
+      maf: row?.maf == null ? null : Number(row.maf),
+    }))
+    if (!telemetryRows.value.length) {
+      telemetryError.value = '선택 장비의 시계열 데이터가 없습니다.'
+      return
+    }
+    startTelemetryStream()
+  } catch (error) {
+    telemetryError.value = error instanceof Error ? error.message : '시계열 조회 오류'
+  } finally {
+    telemetryLoading.value = false
   }
 }
 
@@ -393,6 +518,11 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopTelemetryStream()
+  if (telemetryLoadDebounceId !== null) {
+    window.clearTimeout(telemetryLoadDebounceId)
+    telemetryLoadDebounceId = null
+  }
   if (mobilePollingId.value !== null) {
     window.clearInterval(mobilePollingId.value)
     mobilePollingId.value = null
@@ -406,6 +536,12 @@ watch(mobileHost, (value) => {
 
 watch(equipmentId, () => {
   bindMobileSessionEquipment()
+  if (telemetryLoadDebounceId !== null) {
+    window.clearTimeout(telemetryLoadDebounceId)
+  }
+  telemetryLoadDebounceId = window.setTimeout(() => {
+    loadTelemetryForEquipment()
+  }, 350)
 })
 </script>
 
@@ -488,6 +624,7 @@ watch(equipmentId, () => {
                     placeholder="장비를 선택하거나 ID 입력"
                     required
                     @focus="loadDevices"
+                    @change="loadTelemetryForEquipment"
                   />
                   <datalist id="equipment-id-options">
                     <option v-for="item in deviceOptions" :key="item.device_id" :value="item.device_id">
@@ -573,6 +710,36 @@ watch(equipmentId, () => {
           </div>
 
           <div class="result-column">
+            <section class="timeseries-panel">
+              <div class="timeseries-head">
+                <div>
+                  <div class="report-tag">AEC-Q Live Time-series (Demo)</div>
+                  <p class="timeseries-sub">장비 선택 시 DB 데이터를 로드한 뒤 실시간 입력처럼 재생합니다.</p>
+                </div>
+                <button class="action-btn-inline" type="button" :disabled="telemetryLoading || !telemetryRows.length" @click="startTelemetryStream">
+                  {{ telemetryLoading ? 'Loading...' : 'Replay' }}
+                </button>
+              </div>
+              <div class="timeseries-chart-wrap">
+                <svg viewBox="0 0 760 220" class="timeseries-chart">
+                  <polyline v-if="chartPoints.rpm" :points="chartPoints.rpm" class="line-rpm" />
+                  <polyline v-if="chartPoints.temp" :points="chartPoints.temp" class="line-temp" />
+                  <polyline v-if="chartPoints.maf" :points="chartPoints.maf" class="line-maf" />
+                </svg>
+                <div class="timeseries-legend">
+                  <span><i class="dot rpm"></i>RPM</span>
+                  <span><i class="dot temp"></i>Coolant Temp</span>
+                  <span><i class="dot maf"></i>MAF</span>
+                  <span class="live-indicator" :class="{ active: streamActive }">{{ streamActive ? 'LIVE' : 'PAUSED' }}</span>
+                </div>
+                <div v-if="chartPoints.last" class="timeseries-stats">
+                  <span>RPM {{ (chartPoints.last.engine_rpm ?? 0).toFixed(0) }}</span>
+                  <span>TEMP {{ (chartPoints.last.coolant_temp ?? 0).toFixed(1) }}°C</span>
+                  <span>MAF {{ (chartPoints.last.maf ?? 0).toFixed(1) }} g/s</span>
+                </div>
+                <p v-if="telemetryError" class="device-error">{{ telemetryError }}</p>
+              </div>
+            </section>
             <transition name="report-fade">
               <div v-if="props.ragMessage" class="report-area">
                 <div class="report-header">
@@ -599,9 +766,6 @@ watch(equipmentId, () => {
                     <span class="timestamp">2026-03-06 | Admin-01</span>
                   </div>
                 </div>
-                <div class="report-body">
-                  {{ props.ragMessage }}
-                </div>
                 <div v-if="metricCards.length > 0" class="inference-metrics">
                   <div v-for="metric in metricCards" :key="metric.key" class="metric-card">
                     <div class="metric-top">
@@ -615,6 +779,9 @@ watch(equipmentId, () => {
                       ></div>
                     </div>
                   </div>
+                </div>
+                <div class="report-body">
+                  {{ props.ragMessage }}
                 </div>
                 
                 <div v-if="previewUrl" class="pdf-preview-container">
@@ -718,7 +885,7 @@ watch(equipmentId, () => {
 
 .rag-layout {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(420px, 0.95fr);
+  grid-template-columns: minmax(460px, 0.88fr) minmax(560px, 1.22fr);
   gap: 28px;
   align-items: start;
 }
@@ -726,6 +893,97 @@ watch(equipmentId, () => {
 .form-column,
 .result-column {
   min-width: 0;
+}
+
+.timeseries-panel {
+  border: 1px solid #1f2937;
+  border-radius: 4px;
+  background: #0a0d12;
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+.timeseries-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.timeseries-sub {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.timeseries-chart-wrap {
+  border: 1px solid #1f2937;
+  border-radius: 4px;
+  padding: 10px;
+  background: #07090d;
+}
+
+.timeseries-chart {
+  width: 100%;
+  height: 220px;
+  display: block;
+}
+
+.line-rpm,
+.line-temp,
+.line-maf {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.line-rpm { stroke: #60a5fa; }
+.line-temp { stroke: #f59e0b; }
+.line-maf { stroke: #34d399; }
+
+.timeseries-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.dot.rpm { background: #60a5fa; }
+.dot.temp { background: #f59e0b; }
+.dot.maf { background: #34d399; }
+
+.live-indicator {
+  margin-left: auto;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.live-indicator.active {
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.timeseries-stats {
+  margin-top: 10px;
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: #e2e8f0;
 }
 
 /* Form Elements */
@@ -1058,6 +1316,15 @@ watch(equipmentId, () => {
   .rag-layout {
     grid-template-columns: 1fr;
     gap: 22px;
+  }
+
+  .timeseries-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .timeseries-stats {
+    flex-wrap: wrap;
   }
 
   .device-create-form {

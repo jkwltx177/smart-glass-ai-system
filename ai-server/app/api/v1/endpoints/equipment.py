@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -189,4 +189,70 @@ async def ingest_telemetry(
         device_id=device_id,
         incident_id=incident_id,
         timestamp=row.timestamp,
+    )
+
+
+@router.get("/{device_id}/telemetry")
+async def list_telemetry(
+    device_id: str,
+    limit: int = Query(default=180, ge=30, le=600),
+    db: Session = Depends(get_db),
+    token_payload: Dict[str, Any] = Depends(verify_bearer_token),
+):
+    _ = token_payload
+    device = db.query(Device).filter(Device.device_id == device_id).first()
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Device {device_id} not found",
+        )
+
+    rows = (
+        db.query(SensorTimeseries)
+        .filter(SensorTimeseries.device_id == device_id)
+        .order_by(SensorTimeseries.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+    rows = list(reversed(rows))
+
+    def _num(value):
+        return float(value) if value is not None else None
+
+    items = [
+        {
+            "ts_id": int(row.ts_id),
+            "timestamp": row.timestamp.isoformat(),
+            "engine_rpm": int(row.engine_rpm) if row.engine_rpm is not None else None,
+            "coolant_temp": _num(row.coolant_temp),
+            "intake_air_temp": _num(row.intake_air_temp),
+            "throttle_pos": _num(row.throttle_pos),
+            "maf": _num(row.maf),
+            "fuel_trim": _num(row.fuel_trim),
+            "failure": bool(row.failure),
+        }
+        for row in rows
+    ]
+
+    return {
+        "device_id": device_id,
+        "count": len(items),
+        "items": items,
+        "source": "db.sensor_timeseries",
+    }
+
+
+@router.get("/{device_id}/telemetry/query")
+async def list_telemetry_query(
+    device_id: str,
+    limit: int = Query(default=180, ge=30, le=600),
+    db: Session = Depends(get_db),
+    token_payload: Dict[str, Any] = Depends(verify_bearer_token),
+):
+    # 일부 환경에서 /telemetry 경로가 POST 전용으로 라우팅되는 문제를 피하기 위한 조회 전용 별칭
+    return await list_telemetry(
+        device_id=device_id,
+        limit=limit,
+        db=db,
+        token_payload=token_payload,
     )
