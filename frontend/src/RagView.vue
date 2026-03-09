@@ -292,11 +292,23 @@ const generateReport = async () => {
     const response = await fetch(`/api/report/quality?incident_id=${props.incidentId}`, {
       method: 'POST'
     })
-    if (!response.ok) throw new Error('Failed to generate report')
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`
+      try {
+        const data = await response.json()
+        if (typeof data?.detail === 'string' && data.detail) {
+          detail = `${detail} - ${data.detail}`
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(detail)
+    }
     const data = await response.json()
     return data.report_url
   } catch (e) {
-    alert('보고서 생성 중 오류가 발생했습니다.')
+    const msg = e instanceof Error ? e.message : 'Unknown error'
+    alert(`보고서 생성 중 오류가 발생했습니다: ${msg}`)
     return null
   } finally {
     reportGenerating.value = false

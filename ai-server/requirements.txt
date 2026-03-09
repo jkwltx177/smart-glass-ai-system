@@ -45,3 +45,4 @@ aiohttp>=3.9.0
 
 # ============ PDF Generation =============
 fpdf2>=2.7.0
+weasyprint>=62.0
