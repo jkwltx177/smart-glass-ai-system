@@ -29,12 +29,14 @@ const audioReady = ref(false)
 const isRecording = ref(false)
 const audioError = ref('')
 const recordedAudioFile = ref<File | null>(null)
+const recordingSeconds = ref(0)
 let audioStream: MediaStream | null = null
 let mediaRecorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
 let orientationQuery: MediaQueryList | null = null
 let orientationHandler: (() => void) | null = null
 let captionTimer: number | null = null
+let recordingTimerId: number | null = null
 
 const deviceLabel = `Smartphone-${navigator.platform || 'mobile'}`
 const imageFallbackRef = ref<HTMLInputElement | null>(null)
@@ -46,10 +48,10 @@ const mediaBusyHint = ref('')
 const fallbackNotice = computed(() => {
   const notices: string[] = []
   if (cameraError.value) {
-    notices.push('카메라 실시간 접근 미지원: 파일 캡처 사용')
+    notices.push(`카메라: ${cameraError.value}`)
   }
   if (audioError.value) {
-    notices.push('마이크 실시간 접근 미지원: 파일 캡처 사용')
+    notices.push(`마이크: ${audioError.value}`)
   }
   return notices.join(' / ')
 })
@@ -80,6 +82,29 @@ const mapMediaError = (error: unknown, target: 'camera' | 'audio') => {
     return '요청한 미디어 조건을 만족하지 못했습니다.'
   }
   return err?.message || `${target === 'camera' ? '카메라' : '마이크'} 접근 실패`
+}
+
+const formatRecordingTime = (seconds: number) => {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+const startRecordingTimer = () => {
+  if (recordingTimerId !== null) {
+    window.clearInterval(recordingTimerId)
+  }
+  recordingSeconds.value = 0
+  recordingTimerId = window.setInterval(() => {
+    recordingSeconds.value += 1
+  }, 1000)
+}
+
+const stopRecordingTimer = () => {
+  if (recordingTimerId !== null) {
+    window.clearInterval(recordingTimerId)
+    recordingTimerId = null
+  }
 }
 
 const connectSession = async () => {
@@ -203,18 +228,48 @@ const initAudio = async () => {
     audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
     audioReady.value = true
   } catch (error) {
-    audioReady.value = false
-    audioError.value = mapMediaError(error, 'audio')
+    // iOS/WebKit 일부 환경에서 audio-only 요청이 실패할 수 있어 video+audio로 재시도
+    try {
+      const combined = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: true,
+      })
+      const audioTracks = combined.getAudioTracks()
+      const videoTracks = combined.getVideoTracks()
+
+      if (videoTracks.length > 0 && videoRef.value) {
+        stopCamera()
+        cameraStream = new MediaStream(videoTracks)
+        videoRef.value.srcObject = cameraStream
+        await videoRef.value.play()
+        cameraReady.value = true
+      }
+
+      if (audioTracks.length > 0) {
+        audioStream = new MediaStream(audioTracks)
+        audioReady.value = true
+        audioError.value = ''
+      } else {
+        audioReady.value = false
+        audioError.value = '마이크 트랙을 가져오지 못했습니다.'
+      }
+    } catch (retryError) {
+      audioReady.value = false
+      audioError.value = mapMediaError(retryError, 'audio')
+    }
   }
 }
 
-const startRecording = () => {
+const startRecording = async () => {
   if (typeof MediaRecorder === 'undefined') {
     audioError.value = '현재 브라우저는 실시간 녹음을 지원하지 않습니다. Open Mic / Choose Audio를 사용하세요.'
     return
   }
   if (!audioStream) {
-    audioError.value = '먼저 Start Mic Access를 눌러 마이크 권한을 허용해 주세요.'
+    await initAudio()
+  }
+  if (!audioStream) {
+    audioError.value = audioError.value || '마이크 접근에 실패했습니다. 권한을 확인해 주세요.'
     return
   }
   audioChunks = []
@@ -227,16 +282,31 @@ const startRecording = () => {
   mediaRecorder.onstop = () => {
     const blob = new Blob(audioChunks, { type: 'audio/webm' })
     recordedAudioFile.value = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' })
+    stopRecordingTimer()
+    isRecording.value = false
+  }
+  mediaRecorder.onerror = () => {
+    stopRecordingTimer()
+    isRecording.value = false
   }
   mediaRecorder.start()
   isRecording.value = true
+  startRecordingTimer()
 }
 
 const stopRecording = () => {
   if (mediaRecorder && isRecording.value) {
     mediaRecorder.stop()
   }
-  isRecording.value = false
+  stopRecordingTimer()
+}
+
+const toggleRecording = async () => {
+  if (isRecording.value) {
+    stopRecording()
+    return
+  }
+  await startRecording()
 }
 
 const onFallbackImage = (event: Event) => {
@@ -443,6 +513,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopSpeech()
   stopCamera()
+  stopRecordingTimer()
   if (audioStream) {
     audioStream.getTracks().forEach((t) => t.stop())
     audioStream = null
@@ -500,16 +571,25 @@ onUnmounted(() => {
           <section class="capture-box compact-controls">
             <h2>Control Panel</h2>
             <div v-if="supportsRealtimeMedia" class="actions compact-stack">
-              <button class="btn" @click="startCamera">Start Camera Preview</button>
-              <button class="btn" :disabled="!cameraReady" @click="capturePhoto">Capture</button>
-              <button class="btn" :disabled="!capturedImageFile" @click="clearPhoto">Clear Photo</button>
-              <button class="btn" :disabled="!audioReady || isRecording" @click="startRecording">Start Record</button>
-              <button class="btn" :disabled="!isRecording" @click="stopRecording">Stop Record</button>
+              <p class="panel-group">ACCESS</p>
+              <button class="btn btn-access" @click="startCamera">Camera Access</button>
+              <button class="btn btn-access" @click="initAudio">Mic Access</button>
+              <p class="panel-group">CAPTURE</p>
+              <button class="btn btn-capture" :disabled="!cameraReady" @click="capturePhoto">Capture Photo</button>
+              <button class="btn btn-neutral" :disabled="!capturedImageFile" @click="clearPhoto">Clear Photo</button>
+              <p class="panel-group">AUDIO</p>
+              <button
+                class="btn"
+                :class="isRecording ? 'btn-stop' : 'btn-record'"
+                @click="toggleRecording"
+              >
+                {{ isRecording ? `Stop Recording (${formatRecordingTime(recordingSeconds)})` : 'Start Recording' }}
+              </button>
             </div>
             <div v-else class="fallback-box compact-stack">
-              <button class="btn" @click="imageFallbackRef?.click()">Open Camera / Choose Image</button>
+              <button class="btn btn-access" @click="imageFallbackRef?.click()">Choose Image</button>
               <input ref="imageFallbackRef" type="file" accept="image/*" capture="environment" @change="onFallbackImage" />
-              <button class="btn" @click="audioFallbackRef?.click()">Open Mic / Choose Audio</button>
+              <button class="btn btn-access" @click="audioFallbackRef?.click()">Choose Audio</button>
               <input ref="audioFallbackRef" type="file" accept="audio/*" capture @change="onFallbackAudio" />
             </div>
 
@@ -517,19 +597,11 @@ onUnmounted(() => {
             <p class="hint">{{ capturedImageFile ? `이미지: ${capturedImageFile.name}` : '캡처 이미지 없음' }}</p>
             <p class="hint">{{ recordedAudioFile ? recordedAudioFile.name : '아직 녹음 파일 없음' }}</p>
 
-            <button class="btn primary send-btn" :disabled="submitting || !connected" @click="submitPayload">
+            <button class="btn primary send-btn btn-send" :disabled="submitting || !connected" @click="submitPayload">
               {{ submitting ? 'Submitting...' : 'Send To AI Server' }}
             </button>
 
             <p v-if="message" class="message">{{ message }}</p>
-
-            <h2>Preview Checks</h2>
-            <ul class="precheck-list">
-              <li v-for="item in previewChecks" :key="item.label" :class="{ ok: item.ok, warn: !item.ok }">
-                <strong>{{ item.label }}</strong>
-                <span>{{ item.hint }}</span>
-              </li>
-            </ul>
           </section>
         </div>
       </div>
@@ -727,39 +799,43 @@ input {
   gap: 8px;
 }
 
-.precheck-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 6px;
+.panel-group {
+  margin: 6px 0 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
 }
 
-.precheck-list li {
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 6px 8px;
-  background: rgba(15, 23, 42, 0.7);
-  display: grid;
-  gap: 2px;
+.btn.btn-access {
+  background: #1e3a8a;
+  border-color: #1d4ed8;
 }
 
-.precheck-list li.ok {
-  border-color: rgba(34, 197, 94, 0.45);
+.btn.btn-capture {
+  background: #0369a1;
+  border-color: #0ea5e9;
 }
 
-.precheck-list li.warn {
-  border-color: rgba(245, 158, 11, 0.45);
+.btn.btn-record {
+  background: #7c2d12;
+  border-color: #f97316;
 }
 
-.precheck-list strong {
-  font-size: 11px;
-  color: #e2e8f0;
+.btn.btn-stop {
+  background: #7f1d1d;
+  border-color: #ef4444;
 }
 
-.precheck-list span {
-  font-size: 11px;
-  color: #93c5fd;
+.btn.btn-neutral {
+  background: #1f2937;
+  border-color: #475569;
+}
+
+.btn.btn-send {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #f8fafc;
 }
 
 .compact-stack {
@@ -866,8 +942,11 @@ input {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 240px;
     gap: 10px;
-    min-height: 100vh;
+    height: 100vh;
+    min-height: 0;
     padding: 74px 8px 8px;
+    box-sizing: border-box;
+    align-items: stretch;
   }
 
   .camera-main {
@@ -900,6 +979,9 @@ input {
 
   .side-panel {
     min-width: 240px;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
     background: rgba(2, 6, 23, 0.78);
     border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: 12px;
@@ -945,11 +1027,6 @@ input {
   .compact-controls .message,
   .compact-controls .error {
     font-size: 11px;
-  }
-
-  .precheck-list strong,
-  .precheck-list span {
-    font-size: 10px;
   }
 
   .compact-error {
