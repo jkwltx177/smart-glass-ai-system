@@ -37,6 +37,8 @@ let orientationQuery: MediaQueryList | null = null
 let orientationHandler: (() => void) | null = null
 let captionTimer: number | null = null
 let recordingTimerId: number | null = null
+let activeAudio: HTMLAudioElement | null = null
+let speechSessionId = 0
 
 const deviceLabel = `Smartphone-${navigator.platform || 'mobile'}`
 const imageFallbackRef = ref<HTMLInputElement | null>(null)
@@ -329,9 +331,15 @@ const onFallbackAudio = (event: Event) => {
 }
 
 const stopSpeech = () => {
+  speechSessionId += 1
   if (captionTimer !== null) {
     window.clearTimeout(captionTimer)
     captionTimer = null
+  }
+  if (activeAudio) {
+    activeAudio.pause()
+    activeAudio.src = ''
+    activeAudio = null
   }
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel()
@@ -383,6 +391,56 @@ const playCaptionOnly = (lines: string[]) => {
   next()
 }
 
+const playAudioBlob = (blob: Blob): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob)
+    const audio = new Audio(url)
+    activeAudio = audio
+    audio.onended = () => {
+      URL.revokeObjectURL(url)
+      if (activeAudio === audio) activeAudio = null
+      resolve()
+    }
+    audio.onerror = () => {
+      URL.revokeObjectURL(url)
+      if (activeAudio === audio) activeAudio = null
+      reject(new Error('audio_playback_error'))
+    }
+    audio.play().catch((err) => {
+      URL.revokeObjectURL(url)
+      if (activeAudio === audio) activeAudio = null
+      reject(err)
+    })
+  })
+
+const speakWithServerTTS = async (lines: string[]) => {
+  const mySession = ++speechSessionId
+  speaking.value = true
+  for (const line of lines) {
+    if (mySession !== speechSessionId) return
+    currentCaption.value = line
+    const response = await fetch('/api/mobile/tts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: line }),
+    })
+    if (!response.ok) {
+      throw new Error(`TTS 요청 실패 (${response.status})`)
+    }
+    const blob = await response.blob()
+    if (!blob.size) {
+      throw new Error('빈 오디오 응답')
+    }
+    await playAudioBlob(blob)
+  }
+  if (mySession === speechSessionId) {
+    speaking.value = false
+    if (!isLandscape.value) currentCaption.value = ''
+  }
+}
+
 const speakActionSteps = (steps: string[], explanation: string) => {
   const queue = extractActionLines(steps, explanation)
   if (queue.length === 0) {
@@ -391,48 +449,44 @@ const speakActionSteps = (steps: string[], explanation: string) => {
     return
   }
 
-  if (!('speechSynthesis' in window)) {
-    playCaptionOnly(queue)
-    return
-  }
-
   stopSpeech()
-  let index = 0
+  void speakWithServerTTS(queue).catch(() => {
+    if (!('speechSynthesis' in window)) {
+      playCaptionOnly(queue)
+      return
+    }
 
-  const speakNext = () => {
-    if (index >= queue.length) {
-      speaking.value = false
-      if (!isLandscape.value) {
-        currentCaption.value = ''
+    let index = 0
+    const speakNext = () => {
+      if (index >= queue.length) {
+        speaking.value = false
+        if (!isLandscape.value) currentCaption.value = ''
+        return
       }
-      return
+      const line = queue[index] ?? ''
+      if (!line) {
+        index += 1
+        speakNext()
+        return
+      }
+      currentCaption.value = line
+      speaking.value = true
+      const utterance = new SpeechSynthesisUtterance(line)
+      utterance.lang = 'ko-KR'
+      utterance.rate = 1.0
+      utterance.pitch = 1.0
+      utterance.onend = () => {
+        index += 1
+        speakNext()
+      }
+      utterance.onerror = () => {
+        index += 1
+        speakNext()
+      }
+      window.speechSynthesis.speak(utterance)
     }
-
-    const line = queue[index] ?? ''
-    if (!line) {
-      index += 1
-      speakNext()
-      return
-    }
-    currentCaption.value = line
-    speaking.value = true
-
-    const utterance = new SpeechSynthesisUtterance(line)
-    utterance.lang = 'ko-KR'
-    utterance.rate = 1.0
-    utterance.pitch = 1.0
-    utterance.onend = () => {
-      index += 1
-      speakNext()
-    }
-    utterance.onerror = () => {
-      index += 1
-      speakNext()
-    }
-    window.speechSynthesis.speak(utterance)
-  }
-
-  speakNext()
+    speakNext()
+  })
 }
 
 const submitPayload = async () => {
