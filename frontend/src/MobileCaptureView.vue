@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 const props = defineProps<{
   initialCode: string
@@ -39,6 +39,16 @@ let captionTimer: number | null = null
 const deviceLabel = `Smartphone-${navigator.platform || 'mobile'}`
 const imageFallbackRef = ref<HTMLInputElement | null>(null)
 const audioFallbackRef = ref<HTMLInputElement | null>(null)
+const fallbackNotice = computed(() => {
+  const notices: string[] = []
+  if (cameraError.value) {
+    notices.push('카메라 실시간 접근 미지원: 파일 캡처 사용')
+  }
+  if (audioError.value) {
+    notices.push('마이크 실시간 접근 미지원: 파일 캡처 사용')
+  }
+  return notices.join(' / ')
+})
 
 const connectSession = async () => {
   if (!code.value.trim()) {
@@ -399,36 +409,34 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="mobile-page">
-    <section class="mobile-card">
+  <main class="mobile-page" :class="{ landscape: isLandscape }">
+    <section class="mobile-card" :class="{ landscape: isLandscape }">
       <h1>Smart Glass Mobile Capture</h1>
       <p class="subtitle">페어링 코드로 연결 후, PC에서 선택한 장비로 바로 촬영/녹음 전송</p>
 
-      <div class="row2">
-        <div>
-          <label>Pair Code</label>
-          <input v-model="code" type="text" placeholder="A1B2C3" />
+      <div class="session-strip">
+        <div class="row2">
+          <div>
+            <label>Pair Code</label>
+            <input v-model="code" type="text" placeholder="A1B2C3" />
+          </div>
         </div>
+
+        <div class="pair-meta">
+          <strong>Bound Equipment:</strong> {{ pairedEquipmentId || 'Not assigned' }}
+        </div>
+
+        <button class="btn connect-btn" :disabled="connecting" @click="connectSession">
+          {{ connecting ? 'Connecting...' : connected ? 'Connected' : 'Connect Pairing' }}
+        </button>
       </div>
 
-      <div class="pair-meta">
-        <strong>Bound Equipment:</strong> {{ pairedEquipmentId || 'Not assigned' }}
-      </div>
-
-      <button class="btn" :disabled="connecting" @click="connectSession">
-        {{ connecting ? 'Connecting...' : connected ? 'Connected' : 'Connect Pairing' }}
-      </button>
-
-      <div class="capture-layout">
+      <div class="capture-layout" :class="{ landscape: isLandscape }">
         <section class="capture-box camera-main">
           <h2>Camera</h2>
           <video v-if="supportsRealtimeMedia" ref="videoRef" class="camera" playsinline muted autoplay></video>
           <div v-if="isLandscape && currentCaption" class="caption-line">{{ currentCaption }}</div>
-          <div v-if="!supportsRealtimeMedia" class="fallback-box">
-            <button class="btn" @click="imageFallbackRef?.click()">Open Camera / Choose Image</button>
-            <input ref="imageFallbackRef" type="file" accept="image/*" capture="environment" @change="onFallbackImage" />
-          </div>
-          <p v-if="cameraError" class="error">{{ cameraError }}</p>
+          <p v-if="cameraError && !isLandscape" class="error">{{ cameraError }}</p>
           <div v-if="supportsRealtimeMedia" class="actions">
             <button class="btn" :disabled="!cameraReady" @click="capturePhoto">Capture</button>
             <button class="btn" :disabled="!capturedImageFile" @click="clearPhoto">Clear Photo</button>
@@ -437,25 +445,31 @@ onUnmounted(() => {
         </section>
 
         <div class="side-panel">
-          <section class="capture-box">
-            <h2>Audio</h2>
-            <p v-if="audioError" class="error">{{ audioError }}</p>
-            <div v-if="supportsRealtimeMedia" class="actions">
+          <section class="capture-box compact-controls">
+            <h2>Control Panel</h2>
+            <div v-if="supportsRealtimeMedia" class="actions compact-stack">
+              <button class="btn" :disabled="!cameraReady" @click="capturePhoto">Capture</button>
+              <button class="btn" :disabled="!capturedImageFile" @click="clearPhoto">Clear Photo</button>
               <button class="btn" :disabled="!audioReady || isRecording" @click="startRecording">Start Record</button>
               <button class="btn" :disabled="!isRecording" @click="stopRecording">Stop Record</button>
             </div>
-            <div v-else class="fallback-box">
+            <div v-else class="fallback-box compact-stack">
+              <button class="btn" @click="imageFallbackRef?.click()">Open Camera / Choose Image</button>
+              <input ref="imageFallbackRef" type="file" accept="image/*" capture="environment" @change="onFallbackImage" />
               <button class="btn" @click="audioFallbackRef?.click()">Open Mic / Choose Audio</button>
               <input ref="audioFallbackRef" type="file" accept="audio/*" capture @change="onFallbackAudio" />
             </div>
+
+            <p v-if="fallbackNotice" class="error compact-error">{{ fallbackNotice }}</p>
+            <p class="hint">{{ capturedImageFile ? `이미지: ${capturedImageFile.name}` : '캡처 이미지 없음' }}</p>
             <p class="hint">{{ recordedAudioFile ? recordedAudioFile.name : '아직 녹음 파일 없음' }}</p>
+
+            <button class="btn primary send-btn" :disabled="submitting || !connected" @click="submitPayload">
+              {{ submitting ? 'Submitting...' : 'Send To AI Server' }}
+            </button>
+
+            <p v-if="message" class="message">{{ message }}</p>
           </section>
-
-          <button class="btn primary send-btn" :disabled="submitting || !connected" @click="submitPayload">
-            {{ submitting ? 'Submitting...' : 'Send To AI Server' }}
-          </button>
-
-          <p v-if="message" class="message">{{ message }}</p>
         </div>
       </div>
     </section>
@@ -472,6 +486,11 @@ onUnmounted(() => {
   padding: 12px;
 }
 
+.mobile-page.landscape {
+  background: #000;
+  padding: 0;
+}
+
 .mobile-card {
   width: 100%;
   max-width: 520px;
@@ -486,6 +505,19 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
+.mobile-card.landscape {
+  max-width: none;
+  width: 100%;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
+  background: #000;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  position: relative;
+}
+
 .subtitle {
   margin: 0;
   color: #93c5fd;
@@ -495,6 +527,12 @@ onUnmounted(() => {
 .row2 {
   display: grid;
   grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.session-strip {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -531,6 +569,7 @@ input {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
 }
 
 .side-panel {
@@ -542,6 +581,7 @@ input {
 .camera-main {
   min-height: 260px;
   position: relative;
+  overflow: hidden;
 }
 
 .capture-box h2 {
@@ -613,6 +653,18 @@ input {
   width: 100%;
 }
 
+.compact-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compact-stack {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
 .error {
   margin: 6px 0 0 0;
   font-size: 12px;
@@ -639,40 +691,156 @@ input {
 
 @media (orientation: landscape) and (min-width: 700px) {
   .mobile-page {
-    padding: 8px;
+    padding: 0;
     align-items: stretch;
   }
 
   .mobile-card {
-    max-width: 1100px;
-    height: calc(100vh - 16px);
-    overflow: auto;
+    max-width: none;
+    width: 100%;
+    height: 100vh;
+    border-radius: 0;
+    border: none;
+    background: #000;
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  .mobile-card > h1,
+  .mobile-card > .subtitle {
+    display: none;
+  }
+
+  .session-strip {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    right: 10px;
+    z-index: 30;
+    display: grid;
+    grid-template-columns: minmax(180px, 280px) minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    background: rgba(2, 6, 23, 0.64);
+    border: 1px solid rgba(148, 163, 184, 0.26);
+    border-radius: 12px;
+    padding: 8px 10px;
+    backdrop-filter: blur(7px);
+    min-height: 56px;
+  }
+
+  .session-strip .row2 {
+    gap: 0;
+  }
+
+  .session-strip label {
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+
+  .session-strip input {
+    height: 34px;
+    padding: 6px 10px;
+  }
+
+  .session-strip .pair-meta {
+    margin: 0;
+    font-size: 12px;
+    color: #dbeafe;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .connect-btn {
+    height: 36px;
+    padding: 0 14px;
+    white-space: nowrap;
   }
 
   .capture-layout {
-    flex-direction: row;
-    align-items: stretch;
-    gap: 12px;
-    min-height: 420px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 240px;
+    gap: 10px;
+    min-height: 100vh;
+    padding: 74px 8px 8px;
   }
 
   .camera-main {
-    flex: 1.9;
-    min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 12px;
+    background: #000;
+    padding: 0;
+  }
+
+  .camera-main h2 {
+    display: none;
   }
 
   .camera {
-    flex: 1;
-    height: auto;
-    min-height: 300px;
-    max-height: 56vh;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    border-radius: 0;
+    object-fit: cover;
   }
 
   .side-panel {
-    flex: 1;
-    min-width: 320px;
+    min-width: 240px;
+    background: rgba(2, 6, 23, 0.78);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 12px;
+    padding: 8px;
+    overflow: auto;
+    box-sizing: border-box;
+  }
+
+  .camera-main .actions {
+    display: none;
+  }
+
+  .preview {
+    display: none;
+  }
+
+  .caption-line {
+    bottom: 14px;
+    border-radius: 10px;
+    font-size: 14px;
+  }
+
+  .compact-controls {
+    border-radius: 10px;
+    padding: 10px;
+    background: rgba(15, 23, 42, 0.86);
+  }
+
+  .compact-controls h2 {
+    font-size: 12px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    color: #93c5fd;
+    letter-spacing: 0.06em;
+  }
+
+  .compact-controls .btn {
+    padding: 9px 10px;
+    font-size: 12px;
+  }
+
+  .compact-controls .hint,
+  .compact-controls .message,
+  .compact-controls .error {
+    font-size: 11px;
+  }
+
+  .compact-error {
+    line-height: 1.4;
   }
 }
 </style>
