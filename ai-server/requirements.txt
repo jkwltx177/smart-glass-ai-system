@@ -1,3 +1,24 @@
+# ============================================================
+# Local Environment Prerequisites (required for WeasyPrint PDF)
+# ------------------------------------------------------------
+# macOS (Homebrew):
+#   brew install cairo pango gdk-pixbuf libffi harfbuzz fribidi ffmpeg mariadb
+#   export DYLD_FALLBACK_LIBRARY_PATH="/opt/homebrew/lib:/usr/local/lib:$DYLD_FALLBACK_LIBRARY_PATH"
+#
+# Ubuntu/Debian:
+#   sudo apt-get update
+#   sudo apt-get install -y libcairo2 libpango-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info ffmpeg mariadb-server
+#
+# Install Python deps:
+#   python -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# Runtime notes:
+# - STT(webm/mp3 -> wav) requires `ffmpeg` in PATH. (app/services/speech/stt_service.py)
+# - DB runtime requires MariaDB/MySQL server reachable by DATABASE_URL.
+# - Auth server module uses Java/Spring Boot separately (install JDK 17+ on local machine).
+# ============================================================
+
 # ============ Core FastAPI =============
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
@@ -26,12 +47,15 @@ faster-whisper>=1.0.0
 pillow>=10.0.0
 
 # ============ ML & Data Processing =============
+numpy>=1.26.0
+pandas>=2.1.0
 faiss-cpu>=1.7.4
 lightgbm>=4.0.0
 xgboost>=2.0.0
 scikit-learn>=1.3.0
 transformers>=4.35.0
 torch>=2.0.0
+langchain-huggingface>=0.1.0
 
 # ============ Utilities & Security =============
 python-jose[cryptography]>=3.3.0

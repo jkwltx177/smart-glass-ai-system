@@ -479,6 +479,8 @@ def build_quality_report(incident_id: int, db: Session) -> tuple[QualityIncident
 class ReportPDF(FPDF):
     def __init__(self):
         super().__init__()
+        self.set_margins(8, 8, 8)
+        self.set_auto_page_break(auto=True, margin=8)
         if os.path.exists(FONT_PATH):
             self.add_font("NanumGothic", "", FONT_PATH)
         if os.path.exists(FONT_BOLD_PATH):
@@ -664,20 +666,21 @@ def _render_html(report: QualityIncidentReport, out_path: str) -> None:
   <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />
   <title>Quality Incident & Corrective Action Report</title>
   <style>
-    body {{ font-family: Arial, sans-serif; background:#f5f7fb; color:#111827; margin:0; padding:24px; }}
-    .wrap {{ max-width:1100px; margin:0 auto; background:#fff; border:1px solid #d1d5db; padding:24px; }}
-    h1 {{ margin:0 0 10px 0; font-size:24px; }}
-    h2 {{ margin:20px 0 8px 0; font-size:17px; border-bottom:1px solid #e5e7eb; padding-bottom:4px; }}
+    @page {{ size: A4; margin: 10mm 8mm; }}
+    body {{ font-family: Arial, sans-serif; background:#ffffff; color:#111827; margin:0; padding:0; }}
+    .wrap {{ width:100%; margin:0; background:#fff; border:1px solid #d1d5db; padding:8px; box-sizing:border-box; }}
+    h1 {{ margin:0 0 6px 0; font-size:20px; }}
+    h2 {{ margin:12px 0 6px 0; font-size:15px; border-bottom:1px solid #e5e7eb; padding-bottom:3px; }}
     table {{ width:100%; border-collapse: collapse; font-size:13px; }}
-    th, td {{ border:1px solid #e5e7eb; padding:8px; vertical-align:top; }}
-    th {{ width:260px; background:#f9fafb; text-align:left; }}
+    th, td {{ border:1px solid #e5e7eb; padding:6px; vertical-align:top; }}
+    th {{ width:220px; background:#f9fafb; text-align:left; }}
     .muted {{ color:#6b7280; font-size:12px; }}
     .chips span {{ display:inline-block; padding:3px 8px; border:1px solid #cbd5e1; border-radius:999px; margin-right:6px; margin-bottom:6px; font-size:12px; }}
-    .grid {{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-top:8px; }}
-    .card {{ border:1px solid #d1d5db; padding:10px; }}
+    .grid {{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:6px; }}
+    .card {{ border:1px solid #d1d5db; padding:8px; }}
     .bar {{ background:#e5e7eb; height:8px; border-radius:999px; overflow:hidden; margin-top:6px; }}
     .fill {{ height:8px; }}
-    .footer {{ margin-top:20px; font-size:12px; color:#374151; }}
+    .footer {{ margin-top:10px; font-size:11px; color:#374151; }}
   </style>
 </head>
 <body>
