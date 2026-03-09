@@ -6,7 +6,7 @@ const props = defineProps<{
 }>()
 
 const code = ref(props.initialCode || '')
-const equipmentId = ref('DEV-MAF-01')
+const pairedEquipmentId = ref('')
 const message = ref('')
 const currentCaption = ref('')
 const speaking = ref(false)
@@ -61,8 +61,12 @@ const connectSession = async () => {
     if (!response.ok) {
       throw new Error(`연결 실패 (${response.status})`)
     }
+    const data = await response.json()
+    pairedEquipmentId.value = String(data?.equipment_id ?? '')
     connected.value = true
-    message.value = '연결 완료. 카메라/마이크 캡처 후 전송하세요.'
+    message.value = pairedEquipmentId.value
+      ? `연결 완료. 바인딩 장비: ${pairedEquipmentId.value}`
+      : '연결 완료. PC에서 장비를 먼저 선택해 주세요.'
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     message.value = `세션 연결 오류: ${errorMessage}`
@@ -311,12 +315,15 @@ const submitPayload = async () => {
     message.value = '음성을 녹음해 주세요.'
     return
   }
+  if (!pairedEquipmentId.value.trim()) {
+    message.value = 'PC에서 장비를 선택한 뒤 새 페어링 코드를 생성해 주세요.'
+    return
+  }
 
   submitting.value = true
   message.value = ''
 
   const formData = new FormData()
-  formData.append('equipment_id', equipmentId.value.trim() || 'DEV-MAF-01')
   formData.append('audio', recordedAudioFile.value)
   if (capturedImageFile.value) {
     formData.append('image', capturedImageFile.value)
@@ -331,6 +338,7 @@ const submitPayload = async () => {
       throw new Error(`전송 실패 (${response.status})`)
     }
     const data = await response.json()
+    pairedEquipmentId.value = String(data?.equipment_id ?? pairedEquipmentId.value)
     const steps = Array.isArray(data?.action_steps) ? data.action_steps.map((s: unknown) => String(s)) : []
     const explanation = typeof data?.explanation === 'string' ? data.explanation : ''
     const lines = extractActionLines(steps, explanation)
@@ -394,17 +402,17 @@ onUnmounted(() => {
   <main class="mobile-page">
     <section class="mobile-card">
       <h1>Smart Glass Mobile Capture</h1>
-      <p class="subtitle">페어링 코드와 장비 ID만 설정 후, 바로 촬영/녹음해서 전송</p>
+      <p class="subtitle">페어링 코드로 연결 후, PC에서 선택한 장비로 바로 촬영/녹음 전송</p>
 
       <div class="row2">
         <div>
           <label>Pair Code</label>
           <input v-model="code" type="text" placeholder="A1B2C3" />
         </div>
-        <div>
-          <label>Equipment ID</label>
-          <input v-model="equipmentId" type="text" placeholder="DEV-MAF-01" />
-        </div>
+      </div>
+
+      <div class="pair-meta">
+        <strong>Bound Equipment:</strong> {{ pairedEquipmentId || 'Not assigned' }}
       </div>
 
       <button class="btn" :disabled="connecting" @click="connectSession">
@@ -486,8 +494,13 @@ onUnmounted(() => {
 
 .row2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
+}
+
+.pair-meta {
+  font-size: 12px;
+  color: #cbd5e1;
 }
 
 label {

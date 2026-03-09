@@ -16,7 +16,7 @@ const emit = defineEmits<{
 
 const selectedImage = ref<File | null>(null)
 const selectedAudio = ref<File | null>(null)
-const equipmentId = ref('DEV-MAF-01')
+const equipmentId = ref('')
 const deviceOptions = ref<Array<{ device_id: string; device_name?: string }>>([])
 const devicesLoading = ref(false)
 const devicesError = ref('')
@@ -24,9 +24,9 @@ const showAddDevice = ref(false)
 const addDeviceLoading = ref(false)
 const newDeviceId = ref('')
 const newDeviceName = ref('')
-const newVehicleType = ref('Unknown')
-const newLineOrSite = ref('Unknown Line')
-const newLocation = ref('Unknown Location')
+const newVehicleType = ref('')
+const newLineOrSite = ref('')
+const newLocation = ref('')
 const reportGenerating = ref(false)
 const previewUrl = ref<string | null>(null)
 const mobileCode = ref('')
@@ -38,7 +38,25 @@ const mobileStatusError = ref('')
 const mobileStatusLoading = ref(false)
 const mobilePollingId = ref<number | null>(null)
 const lastMobileResultId = ref('')
-const mobileHost = ref(localStorage.getItem('mobileHostOverride') || '')
+const ACCESS_TOKEN_STORAGE_KEY = 'accessToken'
+const TOKEN_TYPE_STORAGE_KEY = 'tokenType'
+const getUserStorageSuffix = () => {
+  const token = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
+  if (!token) return 'anon'
+  try {
+    const payloadPart = token.split('.')[1] || ''
+    const b64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/')
+    const pad = '='.repeat((4 - (b64.length % 4)) % 4)
+    const json = atob(b64 + pad)
+    const payload = JSON.parse(json)
+    return String(payload?.sub || 'anon')
+  } catch {
+    return 'anon'
+  }
+}
+
+const mobileHostStorageKey = `mobileHostOverride:${getUserStorageSuffix()}`
+const mobileHost = ref(localStorage.getItem(mobileHostStorageKey) || '')
 const mobileQrSrc = computed(() => {
   if (!mobileLink.value) return ''
   return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(mobileLink.value)}`
@@ -47,8 +65,6 @@ const mobileQrSrc = computed(() => {
 const isRecording = ref(false)
 let mediaRecorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
-const ACCESS_TOKEN_STORAGE_KEY = 'accessToken'
-const TOKEN_TYPE_STORAGE_KEY = 'tokenType'
 
 const getAuthHeaders = (): Record<string, string> => {
   const accessToken = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
@@ -85,8 +101,12 @@ const startMobileSession = async () => {
     const response = await fetch('/api/mobile/session/start', {
       method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         ...getAuthHeaders(),
       },
+      body: JSON.stringify({
+        equipment_id: equipmentId.value.trim() || undefined,
+      }),
     })
     if (!response.ok) {
       throw new Error(`세션 생성 실패 (${response.status})`)
@@ -96,6 +116,24 @@ const startMobileSession = async () => {
     rebuildMobileLink()
   } catch (error) {
     mobileStatusError.value = error instanceof Error ? error.message : '모바일 세션 생성 오류'
+  }
+}
+
+const bindMobileSessionEquipment = async () => {
+  if (!mobileCode.value || !equipmentId.value.trim()) return
+  try {
+    await fetch(`/api/mobile/session/${mobileCode.value}/equipment`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        equipment_id: equipmentId.value.trim(),
+      }),
+    })
+  } catch {
+    // Ignore transient binding failures; polling will keep main flow alive.
   }
 }
 
@@ -156,10 +194,6 @@ const loadDevices = async () => {
       device_name: typeof it.device_name === 'string' ? it.device_name : '',
     })).filter((it: { device_id: string }) => !!it.device_id)
 
-    const firstDevice = deviceOptions.value[0]
-    if (!equipmentId.value && firstDevice) {
-      equipmentId.value = firstDevice.device_id
-    }
   } catch (error) {
     devicesError.value = error instanceof Error ? error.message : '장비 목록 조회 오류'
   } finally {
@@ -184,9 +218,9 @@ const addDevice = async () => {
       body: JSON.stringify({
         device_id: newDeviceId.value.trim(),
         device_name: newDeviceName.value.trim(),
-        vehicle_type: newVehicleType.value.trim() || 'Unknown',
-        line_or_site: newLineOrSite.value.trim() || 'Unknown Line',
-        location: newLocation.value.trim() || 'Unknown Location',
+        vehicle_type: newVehicleType.value.trim(),
+        line_or_site: newLineOrSite.value.trim(),
+        location: newLocation.value.trim(),
       }),
     })
     if (!response.ok) {
@@ -204,6 +238,9 @@ const addDevice = async () => {
     showAddDevice.value = false
     newDeviceId.value = ''
     newDeviceName.value = ''
+    newVehicleType.value = ''
+    newLineOrSite.value = ''
+    newLocation.value = ''
   } catch (error) {
     devicesError.value = error instanceof Error ? error.message : '장비 추가 오류'
   } finally {
@@ -293,7 +330,7 @@ const onSubmit = () => {
   emit('submit', {
     imageFile: selectedImage.value,
     audioFile: selectedAudio.value,
-    equipmentId: equipmentId.value.trim() || 'DEV-MAF-01',
+    equipmentId: equipmentId.value.trim(),
   })
 }
 
@@ -314,8 +351,12 @@ onUnmounted(() => {
 })
 
 watch(mobileHost, (value) => {
-  localStorage.setItem('mobileHostOverride', value)
+  localStorage.setItem(mobileHostStorageKey, value)
   rebuildMobileLink()
+})
+
+watch(equipmentId, () => {
+  bindMobileSessionEquipment()
 })
 </script>
 
