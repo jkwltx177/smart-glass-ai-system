@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import HistoryView from './HistoryView.vue'
 import LoginView from './LoginView.vue'
 import MobileCaptureView from './MobileCaptureView.vue'
@@ -221,10 +221,16 @@ const navigateTo = (view: MenuTarget | Exclude<ViewType, 'login'>) => {
   predictiveSummary.value = null
   if (view === 'rag' || view === 'history') {
     currentView.value = view
+    nextTick(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    })
     return
   }
 
   currentView.value = 'menu'
+  nextTick(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  })
 }
 
 const onMobileResult = (payload: { incidentId: string; explanation: string; steps: string[] }) => {

@@ -809,8 +809,8 @@ watch(equipmentId, () => {
   font-family: 'Inter', -apple-system, sans-serif;
   display: flex;
   justify-content: center;
-  align-items: center;
-  padding: 40px 20px;
+  align-items: flex-start;
+  padding: 24px 20px 40px;
   position: relative;
 }
 
