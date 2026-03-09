@@ -157,5 +157,10 @@ async def run_rag_query_with_files(
         ),
         explanation=clean_explanation,
         evidence=result.get("evidence", []),
-        incident_id=str(incident_id)
+        incident_id=str(incident_id),
+        predictive_ai={
+            "failure_probability": float(result.get("failure_probability", 0.0) or 0.0),
+            "predicted_rul_minutes": float(result.get("predicted_rul", 0.0) or 0.0),
+            "anomaly_score": float(result.get("anomaly_score", 0.0) or 0.0),
+        },
     )

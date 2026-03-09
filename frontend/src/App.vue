@@ -19,11 +19,17 @@ type LoginResponse = {
 }
 
 type ViewType = 'login' | 'menu' | 'rag' | 'history'
+type PredictiveSummary = {
+  failure_probability: number
+  predicted_rul_minutes: number
+  anomaly_score: number
+} | null
 
 const currentView = ref<ViewType>('login')
 const message = ref('')
 const ragMessage = ref('')
 const incidentId = ref<string | null>(null)
+const predictiveSummary = ref<PredictiveSummary>(null)
 const loginLoading = ref(false)
 const ragLoading = ref(false)
 const isMobileCapture = ref(false)
@@ -129,6 +135,7 @@ const onSubmit = async (credentials: AuthSubmitPayload) => {
 const onLogout = () => {
   message.value = ''
   ragMessage.value = ''
+  predictiveSummary.value = null
   localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY)
   localStorage.removeItem(TOKEN_TYPE_STORAGE_KEY)
   localStorage.removeItem(EXPIRES_IN_STORAGE_KEY)
@@ -139,6 +146,7 @@ type MenuTarget = 'dashboard' | 'rag' | 'history' | 'analytics' | 'settings'
 
 const navigateTo = (view: MenuTarget | Exclude<ViewType, 'login'>) => {
   ragMessage.value = ''
+  predictiveSummary.value = null
   if (view === 'rag' || view === 'history') {
     currentView.value = view
     return
@@ -149,6 +157,7 @@ const navigateTo = (view: MenuTarget | Exclude<ViewType, 'login'>) => {
 
 const onMobileResult = (payload: { incidentId: string; explanation: string; steps: string[] }) => {
   incidentId.value = payload.incidentId
+  predictiveSummary.value = null
   const cleanExplanation = stripMarkdownAsterisks(payload.explanation ?? '')
   const cleanSteps = normalizeActionSteps(payload.steps, cleanExplanation)
   ragMessage.value = cleanSteps.length > 0
@@ -206,6 +215,17 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
     const data = await response.json()
     const cleanExplanation = stripMarkdownAsterisks(data.explanation ?? '')
     const cleanSteps = normalizeActionSteps(data.action_plan?.steps, cleanExplanation)
+    const failureProbability = Number(data?.predictive_ai?.failure_probability ?? NaN)
+    const predictedRul = Number(data?.predictive_ai?.predicted_rul_minutes ?? NaN)
+    const anomalyScore = Number(data?.predictive_ai?.anomaly_score ?? NaN)
+    predictiveSummary.value =
+      Number.isFinite(failureProbability) && Number.isFinite(predictedRul) && Number.isFinite(anomalyScore)
+        ? {
+            failure_probability: Math.max(0, Math.min(1, failureProbability)),
+            predicted_rul_minutes: Math.max(0, predictedRul),
+            anomaly_score: Math.max(0, Math.min(1, anomalyScore)),
+          }
+        : null
     ragMessage.value = cleanSteps.length > 0
       ? `[분석 결과]\n${cleanExplanation}\n\n[조치 절차]\n${cleanSteps.join('\n')}`
       : `[분석 결과]\n${cleanExplanation}`
@@ -214,6 +234,7 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
     const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
     ragMessage.value = `요청 중 오류가 발생했습니다: ${errorMessage}`
     incidentId.value = null
+    predictiveSummary.value = null
   } finally {
     ragLoading.value = false
   }
@@ -232,6 +253,7 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
     :rag-loading="ragLoading"
     :rag-message="ragMessage"
     :incident-id="incidentId"
+    :predictive-summary="predictiveSummary"
     @submit="sendRagRequest"
     @mobile-result="onMobileResult"
     @back="navigateTo('menu')"

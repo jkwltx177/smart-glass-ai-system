@@ -5,6 +5,11 @@ const props = defineProps<{
   ragLoading: boolean
   ragMessage: string
   incidentId: string | null
+  predictiveSummary: {
+    failure_probability: number
+    predicted_rul_minutes: number
+    anomaly_score: number
+  } | null
 }>()
 
 const emit = defineEmits<{
@@ -60,6 +65,38 @@ const mobileHost = ref(localStorage.getItem(mobileHostStorageKey) || '')
 const mobileQrSrc = computed(() => {
   if (!mobileLink.value) return ''
   return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(mobileLink.value)}`
+})
+const metricCards = computed(() => {
+  if (!props.predictiveSummary) return []
+  const fp = Math.max(0, Math.min(1, Number(props.predictiveSummary.failure_probability || 0)))
+  const an = Math.max(0, Math.min(1, Number(props.predictiveSummary.anomaly_score || 0)))
+  const rulRaw = Math.max(0, Number(props.predictiveSummary.predicted_rul_minutes || 0))
+  const rulMax = 1440
+  const rulRatio = Math.max(0, Math.min(1, rulRaw / rulMax))
+
+  return [
+    {
+      key: 'failure',
+      label: 'Failure Probability',
+      value: `${(fp * 100).toFixed(1)}%`,
+      ratio: fp,
+      color: '#ef4444',
+    },
+    {
+      key: 'anomaly',
+      label: 'Anomaly Score',
+      value: `${(an * 100).toFixed(1)}%`,
+      ratio: an,
+      color: '#f59e0b',
+    },
+    {
+      key: 'rul',
+      label: 'Predicted RUL',
+      value: `${rulRaw.toFixed(1)} min`,
+      ratio: rulRatio,
+      color: '#10b981',
+    },
+  ]
 })
 
 const isRecording = ref(false)
@@ -549,6 +586,20 @@ watch(equipmentId, () => {
             <div class="report-body">
               {{ props.ragMessage }}
             </div>
+            <div v-if="metricCards.length > 0" class="inference-metrics">
+              <div v-for="metric in metricCards" :key="metric.key" class="metric-card">
+                <div class="metric-top">
+                  <span class="metric-label">{{ metric.label }}</span>
+                  <span class="metric-value">{{ metric.value }}</span>
+                </div>
+                <div class="metric-rail">
+                  <div
+                    class="metric-fill"
+                    :style="{ width: `${(metric.ratio * 100).toFixed(1)}%`, background: metric.color }"
+                  ></div>
+                </div>
+              </div>
+            </div>
             
             <div v-if="previewUrl" class="pdf-preview-container">
               <iframe :src="previewUrl" class="pdf-iframe"></iframe>
@@ -883,6 +934,50 @@ watch(equipmentId, () => {
   font-size: 15px; line-height: 1.8; color: #cbd5e1;
   background: #0a0c10; padding: 24px; border-radius: 2px;
   white-space: pre-wrap; /* 이 부분을 추가하여 줄바꿈을 유지합니다 */
+}
+
+.inference-metrics {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.metric-card {
+  border: 1px solid #1f2937;
+  border-radius: 4px;
+  background: #0b0f16;
+  padding: 10px 12px;
+}
+
+.metric-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.metric-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.metric-rail {
+  height: 8px;
+  border-radius: 999px;
+  background: #1f2937;
+  overflow: hidden;
+}
+
+.metric-fill {
+  height: 100%;
+  border-radius: 999px;
 }
 
 .pdf-preview-container {

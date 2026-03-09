@@ -22,7 +22,50 @@ def normalize_text(text: str) -> str:
 def strip_markdown_asterisks(text: str) -> str:
     if not text:
         return ""
-    return str(text).replace("**", "").replace("__", "")
+    return str(text).replace("**", "").replace("__", "").replace("* ", "").replace(" *", " ")
+
+
+def _normalize_line(text: str) -> str:
+    if not text:
+        return ""
+    s = strip_markdown_asterisks(text).strip()
+    for token in ["- ", "• ", "* ", "> "]:
+        if s.startswith(token):
+            s = s[len(token):].strip()
+    return s
+
+
+def _extract_description_sections(raw_desc: str) -> tuple[list[str], list[str]]:
+    placeholder = "상세 조치 내용은 아래 분석 결과를 확인하세요."
+    analysis_lines: list[str] = []
+    action_lines: list[str] = []
+    seen = set()
+    mode = "analysis"
+
+    for raw in str(raw_desc or "").splitlines():
+        line = _normalize_line(raw)
+        if not line:
+            continue
+        key = line.replace(" ", "").lower()
+        if key in {"[분석결과]", "분석결과"}:
+            mode = "analysis"
+            continue
+        if key in {"[조치절차]", "조치절차", "action", "actionplan", "description&actionplan"}:
+            mode = "action"
+            continue
+        if line == placeholder:
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        if mode == "action":
+            action_lines.append(line)
+        else:
+            analysis_lines.append(line)
+
+    if not analysis_lines and action_lines:
+        analysis_lines = action_lines[:]
+    return analysis_lines, action_lines
 
 class ReportPDF(FPDF):
     def __init__(self):
@@ -95,7 +138,7 @@ def _get_prediction_snapshot(db: Session, incident: Incident) -> dict:
     }
 
 
-def _draw_bar_metric(
+def _draw_metric_band(
     pdf: ReportPDF,
     base_font: str,
     label: str,
@@ -104,61 +147,96 @@ def _draw_bar_metric(
     unit: str,
     color_rgb: tuple[int, int, int],
 ) -> None:
-    bar_x = pdf.get_x()
-    bar_y = pdf.get_y()
-    bar_w = 120
-    bar_h = 6
+    band_x = pdf.get_x()
+    band_y = pdf.get_y()
+    band_w = 122
+    band_h = 7
+    ratio = 0.0 if max_value <= 0 else max(0.0, min(1.0, value / max_value))
+    marker_x = band_x + 74 + (band_w * ratio)
 
     pdf.set_font(base_font, '', 10)
     shown = round(value, 4) if unit == "" else round(value, 2)
-    pdf.cell(70, 6, txt=normalize_text(f"{label}: {shown}{unit}"), ln=0)
+    pdf.cell(72, 6, txt=normalize_text(f"{label}: {shown}{unit}"), ln=0)
 
-    pdf.set_fill_color(40, 48, 64)
-    pdf.rect(bar_x + 72, bar_y, bar_w, bar_h, style='F')
+    # risk zones: green / amber / red
+    pdf.set_fill_color(22, 101, 52)
+    pdf.rect(band_x + 74, band_y, band_w * 0.5, band_h, style='F')
+    pdf.set_fill_color(161, 98, 7)
+    pdf.rect(band_x + 74 + band_w * 0.5, band_y, band_w * 0.25, band_h, style='F')
+    pdf.set_fill_color(153, 27, 27)
+    pdf.rect(band_x + 74 + band_w * 0.75, band_y, band_w * 0.25, band_h, style='F')
 
-    ratio = 0.0 if max_value <= 0 else max(0.0, min(1.0, value / max_value))
-    fill_w = bar_w * ratio
-    pdf.set_fill_color(*color_rgb)
-    pdf.rect(bar_x + 72, bar_y, fill_w, bar_h, style='F')
+    pdf.set_draw_color(148, 163, 184)
+    pdf.rect(band_x + 74, band_y, band_w, band_h)
+
+    # measured value marker
+    pdf.set_draw_color(*color_rgb)
+    pdf.set_line_width(1.4)
+    pdf.line(marker_x, band_y - 1.2, marker_x, band_y + band_h + 1.2)
+    pdf.set_line_width(0.2)
     pdf.ln(8)
 
 
-def _draw_timeseries_sparkline(pdf: ReportPDF, rows: list[SensorTimeseries]) -> None:
+def _draw_timeseries_panel(pdf: ReportPDF, rows: list[SensorTimeseries], base_font: str) -> None:
     if not rows:
-        pdf.set_font('Arial', '', 9)
+        pdf.set_font(base_font, '', 9)
         pdf.cell(0, 6, txt=normalize_text("시계열 샘플이 없어 트렌드 그래프를 생략합니다."), ln=1)
         return
 
-    # 최근 60개 샘플만 사용
-    samples = rows[-60:]
-    values = [_safe_float(r.coolant_temp, 0.0) for r in samples]
-    if not values:
+    samples = rows[-90:]
+    coolant = [_safe_float(r.coolant_temp, 0.0) for r in samples]
+    rpm = [_safe_float(r.engine_rpm, 0.0) for r in samples]
+    throttle = [_safe_float(r.throttle_pos, 0.0) for r in samples]
+    if not coolant:
         return
 
-    min_v = min(values)
-    max_v = max(values)
-    span = max(max_v - min_v, 1e-6)
+    def normalize(vals: list[float]) -> list[float]:
+        vmin, vmax = min(vals), max(vals)
+        span = max(vmax - vmin, 1e-6)
+        return [(v - vmin) / span for v in vals]
+
+    coolant_n = normalize(coolant)
+    rpm_n = normalize(rpm) if any(v > 0 for v in rpm) else [0.0 for _ in rpm]
+    throttle_n = normalize(throttle) if any(v > 0 for v in throttle) else [0.0 for _ in throttle]
 
     x0 = pdf.get_x()
     y0 = pdf.get_y()
     w = 180
-    h = 28
+    h = 42
 
-    pdf.set_draw_color(80, 92, 120)
+    # grid
+    pdf.set_draw_color(71, 85, 105)
     pdf.rect(x0, y0, w, h)
+    for i in range(1, 4):
+        gy = y0 + (h * i / 4)
+        pdf.line(x0, gy, x0 + w, gy)
 
-    pdf.set_draw_color(37, 99, 235)
-    n = len(values)
-    for i in range(n - 1):
-        x1 = x0 + (w * i / max(1, n - 1))
-        x2 = x0 + (w * (i + 1) / max(1, n - 1))
-        y1 = y0 + h - (h * (values[i] - min_v) / span)
-        y2 = y0 + h - (h * (values[i + 1] - min_v) / span)
-        pdf.line(x1, y1, x2, y2)
+    def draw_series(values: list[float], color: tuple[int, int, int]) -> None:
+        pdf.set_draw_color(*color)
+        n = len(values)
+        for i in range(n - 1):
+            x1 = x0 + (w * i / max(1, n - 1))
+            x2 = x0 + (w * (i + 1) / max(1, n - 1))
+            y1 = y0 + h - (h * values[i])
+            y2 = y0 + h - (h * values[i + 1])
+            pdf.line(x1, y1, x2, y2)
+
+    draw_series(coolant_n, (37, 99, 235))
+    draw_series(rpm_n, (16, 185, 129))
+    draw_series(throttle_n, (245, 158, 11))
 
     pdf.ln(h + 2)
-    pdf.set_font('Arial', '', 8)
-    pdf.cell(0, 5, txt=normalize_text(f"Coolant Temp Trend (min={min_v:.2f}, max={max_v:.2f})"), ln=1)
+    pdf.set_font(base_font, '', 8)
+    pdf.cell(
+        0,
+        5,
+        txt=normalize_text(
+            f"Legend: Coolant Temp[{min(coolant):.1f}-{max(coolant):.1f}], "
+            f"RPM[{min(rpm):.0f}-{max(rpm):.0f}], "
+            f"Throttle[{min(throttle):.1f}-{max(throttle):.1f}]"
+        ),
+        ln=1,
+    )
 
 def generate_pdf_report(incident_id: int, db: Session) -> str:
     """
@@ -173,10 +251,11 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
     ts_rows = (
         db.query(SensorTimeseries)
         .filter(SensorTimeseries.device_id == incident.device_id)
-        .order_by(SensorTimeseries.timestamp.asc())
-        .limit(120)
+        .order_by(SensorTimeseries.timestamp.desc())
+        .limit(240)
         .all()
     )
+    ts_rows.reverse()
 
     pdf = ReportPDF()
     pdf.add_page()
@@ -201,11 +280,19 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
     pdf.cell(200, 10, txt="2. 상세 설명 및 조치 내용 (Description & Action Plan)", ln=1)
     pdf.set_font(base_font, '', 10)
     
-    desc = str(incident.description) if incident.description else "상세 설명이 없습니다."
-    desc = strip_markdown_asterisks(desc)
-    
-    # UTF-8 출력 지원
-    pdf.multi_cell(0, 8, txt=normalize_text(desc))
+    desc = str(incident.description) if incident.description else ""
+    analysis_lines, action_lines = _extract_description_sections(desc)
+    if analysis_lines:
+        pdf.multi_cell(0, 8, txt=normalize_text("\n".join(analysis_lines)))
+    else:
+        pdf.multi_cell(0, 8, txt=normalize_text("상세 설명이 없습니다."))
+    if action_lines:
+        pdf.ln(2)
+        pdf.set_font(base_font, 'B', 11)
+        pdf.cell(200, 8, txt=normalize_text("조치 절차"), ln=1)
+        pdf.set_font(base_font, '', 10)
+        for idx, step in enumerate(action_lines, start=1):
+            pdf.cell(0, 7, txt=normalize_text(f"{idx}. {step}"), ln=1)
     pdf.ln(5)
 
     # Assets Summary
@@ -232,7 +319,7 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
         ln=1,
     )
 
-    _draw_bar_metric(
+    _draw_metric_band(
         pdf,
         base_font=base_font,
         label="Failure Probability",
@@ -241,7 +328,7 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
         unit="",
         color_rgb=(239, 68, 68),
     )
-    _draw_bar_metric(
+    _draw_metric_band(
         pdf,
         base_font=base_font,
         label="Anomaly Score",
@@ -250,7 +337,7 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
         unit="",
         color_rgb=(245, 158, 11),
     )
-    _draw_bar_metric(
+    _draw_metric_band(
         pdf,
         base_font=base_font,
         label="Predicted RUL",
@@ -261,8 +348,8 @@ def generate_pdf_report(incident_id: int, db: Session) -> str:
     )
 
     pdf.set_font(base_font, '', 9)
-    pdf.cell(200, 6, txt=normalize_text("5. 최근 시계열 트렌드 (Coolant Temperature)"), ln=1)
-    _draw_timeseries_sparkline(pdf, ts_rows)
+    pdf.cell(200, 6, txt=normalize_text("5. 최근 시계열 트렌드 (Multi-Sensor Trend)"), ln=1)
+    _draw_timeseries_panel(pdf, ts_rows, base_font)
 
     # Save PDF
     os.makedirs(settings.REPORT_OUTPUT_DIR, exist_ok=True)
