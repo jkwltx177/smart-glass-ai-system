@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import HistoryView from './HistoryView.vue'
 import LoginView from './LoginView.vue'
 import MobileCaptureView from './MobileCaptureView.vue'
@@ -34,6 +34,14 @@ const loginLoading = ref(false)
 const ragLoading = ref(false)
 const isMobileCapture = ref(false)
 const mobileCode = ref('')
+const currentUserName = ref('로그인 사용자')
+const currentUserRole = ref('인증 사용자')
+const currentUserAvatar = computed(() => {
+  const base = String(currentUserName.value || '').trim()
+  if (!base) return 'US'
+  const only = base.replace(/[^a-zA-Z0-9가-힣]/g, '')
+  return (only.slice(0, 2) || 'US').toUpperCase()
+})
 
 const stripMarkdownAsterisks = (text: string): string =>
   String(text ?? '')
@@ -50,6 +58,38 @@ const normalizeActionSteps = (steps: unknown, explanation: string): string[] => 
     .filter((s) => s !== placeholder)
     .filter((s) => !explanation.includes(s))
   return Array.from(new Set(cleaned))
+}
+
+const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
+  try {
+    const part = token.split('.')[1]
+    if (!part) return null
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+    const json = atob(padded)
+    return JSON.parse(json) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+const toDisplayRole = (rawRole: string): string => {
+  const normalized = rawRole.trim().toUpperCase()
+  if (!normalized) return '인증 사용자'
+  if (normalized === 'ADMIN') return '관리자 권한'
+  if (normalized === 'ENTERPRISE_ADMIN') return '엔터프라이즈 관리자'
+  if (normalized === 'FIELD_OPERATOR') return '현장 작업자'
+  return normalized
+}
+
+const syncUserFromToken = (token: string | null) => {
+  if (!token) return
+  const payload = decodeJwtPayload(token)
+  if (!payload) return
+  const sub = typeof payload.sub === 'string' ? payload.sub : ''
+  const role = typeof payload.role === 'string' ? payload.role : ''
+  if (sub) currentUserName.value = sub
+  if (role) currentUserRole.value = toDisplayRole(role)
 }
 
 type AuthSubmitPayload = {
@@ -123,6 +163,9 @@ const onSubmit = async (credentials: AuthSubmitPayload) => {
     localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, payload.accessToken)
     localStorage.setItem(TOKEN_TYPE_STORAGE_KEY, payload.tokenType)
     localStorage.setItem(EXPIRES_IN_STORAGE_KEY, String(payload.expiresInSeconds))
+    currentUserName.value = credentials.id
+    currentUserRole.value = '인증 사용자'
+    syncUserFromToken(payload.accessToken)
     currentView.value = 'menu'
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
@@ -139,6 +182,8 @@ const onLogout = () => {
   localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY)
   localStorage.removeItem(TOKEN_TYPE_STORAGE_KEY)
   localStorage.removeItem(EXPIRES_IN_STORAGE_KEY)
+  currentUserName.value = '로그인 사용자'
+  currentUserRole.value = '인증 사용자'
   currentView.value = 'login'
 }
 
@@ -175,6 +220,7 @@ const initMode = () => {
   }
 }
 initMode()
+syncUserFromToken(localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY))
 
 const sendRagRequest = async (files: { imageFile: File | null; audioFile: File | null; equipmentId: string }) => {
   if (!files.audioFile) {
@@ -246,7 +292,14 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
 
   <LoginView v-else-if="currentView === 'login'" :login-loading="loginLoading" :message="message" @submit="onSubmit" />
 
-  <MenuView v-else-if="currentView === 'menu'" @navigate="navigateTo" @logout="onLogout" />
+  <MenuView
+    v-else-if="currentView === 'menu'"
+    :user-name="currentUserName"
+    :user-role="currentUserRole"
+    :user-avatar="currentUserAvatar"
+    @navigate="navigateTo"
+    @logout="onLogout"
+  />
 
   <RagView
     v-else-if="currentView === 'rag'"
