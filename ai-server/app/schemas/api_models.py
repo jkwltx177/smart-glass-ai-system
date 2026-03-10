@@ -184,6 +184,8 @@ class HistoryLogItem(BaseModel):
     type: str
     status: str
     latency: str
+    report_url: Optional[str] = None
+    html_report_url: Optional[str] = None
 
 class HistoryListResponse(BaseModel):
     items: List[HistoryLogItem]
