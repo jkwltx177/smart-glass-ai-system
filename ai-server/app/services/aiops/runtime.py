@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from app.core.database import SessionLocal
 from app.models.domain import Prediction, RetrainJob, SensorTimeseries
+from app.services.prediction import reload_predictor, train_prediction_models
 from app.services.prediction.preprocessing import SENSOR_FIELDS
 from .analytics import compute_aiops_drift, compute_aiops_overview
 from .events import emit_aiops_event
@@ -24,6 +25,15 @@ def _safe_float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _parse_payload(raw: Optional[str]) -> Dict[str, Any]:
@@ -151,27 +161,51 @@ def _process_one_retrain_job(job_id: int) -> Tuple[bool, str]:
             job = db.query(RetrainJob).filter(RetrainJob.job_id == job_id).first()
             if not job:
                 return False, "job_not_found"
-            snapshot = _build_retrain_snapshot(job)
-        if snapshot["dataset"]["sensor_row_count"] < 120:
-            _mark_job_done(
-                job_id,
-                status="failed",
-                payload_patch={"reason": "insufficient_sensor_data", "min_required_rows": 120},
-                message="Retrain aborted: insufficient sensor rows",
-                severity="MEDIUM",
+            if model_target.strip().lower() != "prediction":
+                _mark_job_done(
+                    job_id,
+                    status="failed",
+                    payload_patch={"reason": "unsupported_model_target", "model_target": model_target},
+                    message="Retrain aborted: unsupported model target",
+                    severity="MEDIUM",
+                )
+                return False, "unsupported_model_target"
+
+            model_dir = Path(os.getenv("PREDICTION_MODEL_DIR", "models/weights"))
+            if not model_dir.is_absolute():
+                model_dir = Path(__file__).resolve().parents[3] / model_dir
+            result = train_prediction_models(
+                db,
+                period_months=int(job.period_months or 3),
+                model_dir=model_dir,
+                preferred_algorithm=os.getenv("PREDICTION_TRAIN_ALGORITHM", "lightgbm"),
+                allow_fallback=os.getenv("PREDICTION_TRAIN_ALLOW_FALLBACK", "0").strip().lower() in {"1", "true", "yes"},
             )
-            return False, "insufficient_sensor_data"
+            snapshot = {
+                "job_id": int(job.job_id),
+                "model_target": result.model_target,
+                "trained_at": result.trained_at,
+                "sample_count": result.sample_count,
+                "positive_ratio": result.positive_ratio,
+                "metrics": result.metrics,
+                "artifact_paths": result.artifact_paths,
+                "model_version": result.model_version,
+            }
 
         artifact_path = _write_artifact(snapshot, model_target=model_target, job_id=job_id)
+        reload_predictor(model_dir=str(model_dir))
         _mark_job_done(
             job_id,
             status="completed",
             payload_patch={
                 "artifact_path": artifact_path,
-                "sensor_row_count": snapshot["dataset"]["sensor_row_count"],
-                "prediction_row_count": snapshot["dataset"]["prediction_row_count"],
+                "model_artifacts": snapshot.get("artifact_paths", {}),
+                "model_version": snapshot.get("model_version"),
+                "sample_count": _safe_int(snapshot.get("sample_count"), 0),
+                "positive_ratio": round(_safe_float(snapshot.get("positive_ratio")), 6),
+                "metrics": snapshot.get("metrics", {}),
             },
-            message="Retrain job completed (snapshot artifact generated)",
+            message="Retrain job completed (model retrained and reloaded)",
             severity="INFO",
         )
         return True, "completed"

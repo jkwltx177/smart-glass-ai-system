@@ -20,6 +20,8 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const pageSize = 10
 const currentPage = ref(1)
+const ACCESS_TOKEN_STORAGE_KEY = 'accessToken'
+const TOKEN_TYPE_STORAGE_KEY = 'tokenType'
 
 const totalCount = computed(() => historyLogs.value.length)
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize)))
@@ -35,9 +37,39 @@ async function fetchHistory() {
   loading.value = true
   error.value = null
   try {
-    const response = await fetch('/api/history?limit=100') // Vite proxy will rewrite this to /api/v1/history
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = await response.json()
+    const accessToken = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
+    const tokenType = localStorage.getItem(TOKEN_TYPE_STORAGE_KEY) ?? 'Bearer'
+    const headers: Record<string, string> = {}
+    if (accessToken) {
+      headers.Authorization = `${tokenType} ${accessToken}`
+    }
+    const envAiBase = (import.meta.env.VITE_AI_BASE_URL as string | undefined)?.trim()
+    const runtimeAiBase = `${window.location.protocol}//${window.location.hostname}:8000`
+    const aiBase = envAiBase || runtimeAiBase
+    const candidates = [
+      '/api/history/?limit=100',
+      '/api/v1/history/?limit=100',
+      `${aiBase.replace(/\/$/, '')}/api/v1/history/?limit=100`,
+      'http://localhost:8000/api/v1/history/?limit=100',
+      'http://127.0.0.1:8000/api/v1/history/?limit=100',
+    ]
+
+    let data: any = null
+    const errors: string[] = []
+    for (const url of candidates) {
+      try {
+        const response = await fetch(url, { headers })
+        if (!response.ok) {
+          errors.push(`${url} -> HTTP ${response.status}`)
+          continue
+        }
+        data = await response.json()
+        break
+      } catch (e) {
+        errors.push(`${url} -> ${e instanceof Error ? e.message : 'Load failed'}`)
+      }
+    }
+    if (!data) throw new Error(errors.join(' | ') || 'Load failed')
     // Map backend history format to HistoryLog interface
     const items = Array.isArray(data?.items) ? data.items : []
     historyLogs.value = items.map((item: any) => ({
@@ -58,10 +90,40 @@ async function fetchHistory() {
   }
 }
 
-const openReport = (log: HistoryLog) => {
-  const reportUrl = log.report_url || log.html_report_url
-  if (!reportUrl) return
-  window.open(reportUrl, '_blank')
+const toAbsoluteUrl = (url: string) => {
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  return `${window.location.origin}${url}`
+}
+
+const canOpenUrl = async (url: string): Promise<boolean> => {
+  try {
+    const res = await fetch(url, { method: 'HEAD' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+const openReport = async (log: HistoryLog) => {
+  const candidates = [log.html_report_url, log.report_url].filter((u): u is string => !!u)
+  if (candidates.length === 0) return
+
+  const popup = window.open('', '_blank')
+  if (!popup) {
+    error.value = '팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'
+    return
+  }
+
+  for (const raw of candidates) {
+    const url = toAbsoluteUrl(raw)
+    if (await canOpenUrl(url)) {
+      popup.location.href = url
+      return
+    }
+  }
+
+  popup.close()
+  error.value = '리포트 파일을 찾지 못했습니다.'
 }
 
 const goPrev = () => {
@@ -122,7 +184,10 @@ onMounted(() => fetchHistory())
 
         <div class="table-wrapper">
           <div v-if="loading" class="loading-state">분석 이력을 불러오는 중...</div>
-          <div v-else-if="error" class="error-state">{{ error }}</div>
+          <div v-else-if="error" class="error-state">
+            <div>{{ error }}</div>
+            <button class="retry-btn" @click="fetchHistory">다시 시도</button>
+          </div>
           <table v-else class="data-table">
             <thead>
               <tr>
@@ -280,6 +345,18 @@ onMounted(() => fetchHistory())
 
 .error-state {
   color: #ef4444;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.retry-btn {
+  border: 1px solid #475569;
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
 .data-table {
