@@ -7,7 +7,7 @@ from app.schemas.api_models import ReportResponse
 from app.schemas.reporting import QualityReportResponse, QualityReportSampleResponse
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.domain import Incident, Prediction
+from app.models.domain import Incident, Prediction, IncidentReport
 from app.services.aiops import compute_aiops_overview
 from app.services.reporting.report_generator import (
     generate_fallback_report_bundle,
@@ -18,14 +18,47 @@ import os
 
 router = APIRouter()
 
+
+def _persist_incident_report(
+    db: Session,
+    incident_id: int,
+    report_url: str,
+    html_report_url: str | None,
+    summary: str,
+) -> None:
+    try:
+        db.add(
+            IncidentReport(
+                incident_id=incident_id,
+                report_type="quality",
+                report_url=report_url,
+                html_report_url=html_report_url,
+                summary=summary,
+                generated_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
 @router.post("/quality", response_model=QualityReportResponse)
 async def generate_quality_report(incident_id: int, db: Session = Depends(get_db)):
     try:
         report, pdf_path, html_path = generate_quality_report_bundle(incident_id, db)
+        report_url = f"/static/reports/{os.path.basename(pdf_path)}"
+        html_report_url = f"/static/reports/{os.path.basename(html_path)}"
+        summary = f"Incident {incident_id} quality report generated"
+        _persist_incident_report(
+            db=db,
+            incident_id=incident_id,
+            report_url=report_url,
+            html_report_url=html_report_url,
+            summary=summary,
+        )
         return QualityReportResponse(
-            report_url=f"/static/reports/{os.path.basename(pdf_path)}",
-            html_report_url=f"/static/reports/{os.path.basename(html_path)}",
-            summary=f"Incident {incident_id} quality report generated",
+            report_url=report_url,
+            html_report_url=html_report_url,
+            summary=summary,
             report=report,
         )
     except Exception as e:
@@ -35,10 +68,20 @@ async def generate_quality_report(incident_id: int, db: Session = Depends(get_db
                 incident_id=incident_id,
                 reason=str(e),
             )
+            fallback_report_url = f"/static/reports/{os.path.basename(fallback_pdf_path)}"
+            fallback_html_url = f"/static/reports/{os.path.basename(fallback_html_path)}"
+            fallback_summary = f"Incident {incident_id} fallback quality report generated (engineer review required)"
+            _persist_incident_report(
+                db=db,
+                incident_id=incident_id,
+                report_url=fallback_report_url,
+                html_report_url=fallback_html_url,
+                summary=fallback_summary,
+            )
             return QualityReportResponse(
-                report_url=f"/static/reports/{os.path.basename(fallback_pdf_path)}",
-                html_report_url=f"/static/reports/{os.path.basename(fallback_html_path)}",
-                summary=f"Incident {incident_id} fallback quality report generated (engineer review required)",
+                report_url=fallback_report_url,
+                html_report_url=fallback_html_url,
+                summary=fallback_summary,
                 report=fallback_report,
             )
         except Exception as fallback_error:
@@ -75,10 +118,19 @@ async def generate_quality_report(incident_id: int, db: Session = Depends(get_db
                     "<p>Engineer review required.</p>"
                     "</body></html>"
                 )
+            emergency_report_url = f"/static/reports/{emergency_html_name}"
+            emergency_summary = "Emergency fallback report returned (engineer review required)"
+            _persist_incident_report(
+                db=db,
+                incident_id=incident_id,
+                report_url=emergency_report_url,
+                html_report_url=emergency_report_url,
+                summary=emergency_summary,
+            )
             return QualityReportResponse(
-                report_url=f"/static/reports/{emergency_html_name}",
-                html_report_url=f"/static/reports/{emergency_html_name}",
-                summary="Emergency fallback report returned (engineer review required)",
+                report_url=emergency_report_url,
+                html_report_url=emergency_report_url,
+                summary=emergency_summary,
                 report=emergency_report,
             )
 

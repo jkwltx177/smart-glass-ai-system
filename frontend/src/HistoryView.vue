@@ -7,6 +7,8 @@ interface HistoryLog {
   type: string
   status: string
   latency: string
+  report_url?: string | null
+  html_report_url?: string | null
 }
 
 const emit = defineEmits<{
@@ -33,16 +35,19 @@ async function fetchHistory() {
   loading.value = true
   error.value = null
   try {
-    const response = await fetch('/api/incidents/') // Vite proxy will rewrite this to /api/v1/incidents/
+    const response = await fetch('/api/history?limit=100') // Vite proxy will rewrite this to /api/v1/history
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
-    // Map backend incident format to HistoryLog interface
-    historyLogs.value = data.map((item: any) => ({
-      id: item.incident_id,
-      timestamp: new Date(item.created_at).toLocaleString(),
-      type: item.device_type || 'Unknown',
+    // Map backend history format to HistoryLog interface
+    const items = Array.isArray(data?.items) ? data.items : []
+    historyLogs.value = items.map((item: any) => ({
+      id: item.id,
+      timestamp: item.timestamp,
+      type: item.type || 'Unknown',
       status: item.status,
-      latency: '-' // Not provided by real API yet
+      latency: item.latency || '-',
+      report_url: item.report_url ?? null,
+      html_report_url: item.html_report_url ?? null,
     }))
     currentPage.value = 1
   } catch (e) {
@@ -51,6 +56,12 @@ async function fetchHistory() {
   } finally {
     loading.value = false
   }
+}
+
+const openReport = (log: HistoryLog) => {
+  const reportUrl = log.report_url || log.html_report_url
+  if (!reportUrl) return
+  window.open(reportUrl, '_blank')
 }
 
 const goPrev = () => {
@@ -135,7 +146,13 @@ onMounted(() => fetchHistory())
                   </span>
                 </td>
                 <td>
-                  <button class="row-action-btn">View Detail</button>
+                  <button
+                    class="row-action-btn"
+                    :disabled="!log.report_url && !log.html_report_url"
+                    @click="openReport(log)"
+                  >
+                    PDF 보기
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -303,6 +320,10 @@ onMounted(() => fetchHistory())
 }
 
 .row-action-btn:hover { border-color: #60a5fa; color: #fff; }
+.row-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 /* Footer */
 .table-footer {

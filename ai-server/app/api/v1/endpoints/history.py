@@ -1,14 +1,16 @@
 """분석 이력(History) API"""
 
 from datetime import datetime
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
+import os
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.domain import Incident, IncidentAsset
+from app.models.domain import Incident, IncidentAsset, IncidentReport
 from app.schemas.api_models import HistoryLogItem, HistoryListResponse
+from app.services.reporting.report_generator import generate_fallback_report_bundle
 
 router = APIRouter()
 
@@ -40,6 +42,43 @@ def _resolve_type(asset_types: Set[str]) -> str:
     return "System"
 
 
+def _ensure_dummy_report(
+    db: Session,
+    incident_id: int,
+) -> Optional[IncidentReport]:
+    existing = (
+        db.query(IncidentReport)
+        .filter(IncidentReport.incident_id == incident_id)
+        .order_by(IncidentReport.generated_at.desc())
+        .first()
+    )
+    if existing:
+        return existing
+
+    try:
+        _, pdf_path, html_path = generate_fallback_report_bundle(
+            incident_id=incident_id,
+            reason="auto-generated for history view",
+        )
+        pdf_url = f"/static/reports/{os.path.basename(pdf_path)}"
+        html_url = f"/static/reports/{os.path.basename(html_path)}"
+        row = IncidentReport(
+            incident_id=incident_id,
+            report_type="quality",
+            report_url=pdf_url,
+            html_report_url=html_url,
+            summary=f"Auto-generated fallback report for incident {incident_id}",
+            generated_at=datetime.utcnow(),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+    except Exception:
+        db.rollback()
+        return None
+
+
 @router.get("/", response_model=HistoryListResponse)
 async def get_analysis_history(
     limit: int = Query(20, ge=1, le=100),
@@ -65,6 +104,28 @@ async def get_analysis_history(
                 continue
             asset_map.setdefault(int(incident_id), set()).add(str(asset_type))
 
+    report_map: Dict[int, IncidentReport] = {}
+    if incident_ids:
+        reports = (
+            db.query(IncidentReport)
+            .filter(IncidentReport.incident_id.in_(incident_ids))
+            .order_by(IncidentReport.generated_at.desc())
+            .all()
+        )
+        for report in reports:
+            report_incident_id = int(report.incident_id)
+            if report_incident_id not in report_map:
+                report_map[report_incident_id] = report
+
+    # 과거 이력에 보고서가 없으면 더미 리포트를 자동 생성해 연결한다.
+    for incident in incidents:
+        iid = int(incident.incident_id)
+        if iid in report_map:
+            continue
+        generated = _ensure_dummy_report(db, iid)
+        if generated:
+            report_map[iid] = generated
+
     items: List[HistoryLogItem] = []
     for incident in incidents:
         iid = int(incident.incident_id)
@@ -81,6 +142,16 @@ async def get_analysis_history(
                 type=_resolve_type(asset_map.get(iid, set())),
                 status=status,
                 latency=_calc_latency(incident),
+                report_url=(
+                    report_map[iid].report_url
+                    if iid in report_map
+                    else None
+                ),
+                html_report_url=(
+                    report_map[iid].html_report_url
+                    if iid in report_map
+                    else None
+                ),
             )
         )
 
