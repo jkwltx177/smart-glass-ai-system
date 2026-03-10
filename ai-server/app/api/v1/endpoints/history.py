@@ -1,8 +1,8 @@
 """분석 이력(History) API"""
 
 from datetime import datetime
-from typing import Dict, List, Optional, Set
 import os
+from typing import Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -117,7 +117,6 @@ async def get_analysis_history(
             if report_incident_id not in report_map:
                 report_map[report_incident_id] = report
 
-    # 과거 이력에 보고서가 없으면 더미 리포트를 자동 생성해 연결한다.
     for incident in incidents:
         iid = int(incident.incident_id)
         if iid in report_map:
