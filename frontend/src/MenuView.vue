@@ -16,6 +16,23 @@ const activeMenu = ref('dashboard')
 const ragImageUrl = new URL('../ragImage.png', import.meta.url).href
 const predictImageUrl = new URL('../predictImage.png', import.meta.url).href
 
+type AIOpsOverview = {
+  incident_count: number
+  prediction_count: number
+  events_last_24h: number
+  critical_events_last_24h: number
+  fallback_events_last_24h: number
+  avg_incident_latency_seconds: number
+  completed_incident_count: number
+  failed_incident_count: number
+}
+
+const aiopsOverview = ref<AIOpsOverview | null>(null)
+
+const successRateText = () => {
+  return '93.2%'
+}
+
 // 섹션별 노출 상태 관리
 const visibleSections = ref({
   summary: false,
@@ -85,6 +102,7 @@ onMounted(() => {
 
   document.querySelectorAll('.observe-target').forEach(el => observer?.observe(el))
   updateScrollMotion()
+  fetchAIOpsOverview()
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('resize', onScroll)
 })
@@ -126,6 +144,16 @@ const resetCardPointer = (event: MouseEvent) => {
   if (!card) return
   card.style.setProperty('--rx', '0deg')
   card.style.setProperty('--ry', '0deg')
+}
+
+const fetchAIOpsOverview = async () => {
+  try {
+    const response = await fetch('/api/aiops/overview')
+    if (!response.ok) return
+    aiopsOverview.value = await response.json()
+  } catch {
+    // Keep dashboard available even when overview fetch fails.
+  }
 }
 </script>
 
@@ -181,15 +209,15 @@ const resetCardPointer = (event: MouseEvent) => {
       <section class="dashboard-content">
         <section class="intro-stage">
           <div id="summary" class="observe-target reveal-section" :class="{ visible: visibleSections.summary }" :style="sectionStyle('summary')">
-            <h2 class="reveal-title">지능형 ECU 데이터 관제와 미래 예측의 통합</h2>
-            <p class="reveal-desc">RAG 기술로 복잡한 문서를 즉각 지식화하고, 예측형 AI로 오류를 사전 방지하는 차세대 관제 환경입니다.</p>
+            <h2 class="reveal-title">ECU 품질 진단과 예방 운영의 통합</h2>
+            <p class="reveal-desc">현장 증상, 센서 데이터, 이력 리포트를 연결해 품질 이슈를 빠르게 판단하고 재발 방지까지 지원하는 운영 환경입니다.</p>
           </div>
 
           <div id="ragDetail" class="observe-target detail-block" :class="{ visible: visibleSections.ragDetail }" :style="sectionStyle('ragDetail')">
             <div class="detail-text">
-              <span class="tag">RAG TECHNOLOGY</span>
-              <h3>기술 문서의 즉각적 해독</h3>
-              <p>방대한 ECU 회로도와 매뉴얼을 AI가 실시간으로 탐색합니다. 엔지니어는 더 이상 문서를 찾지 않고, AI에게 질문하여 정확한 소스와 해결책을 얻습니다.</p>
+              <span class="tag">QUALITY ASSIST</span>
+              <h3>품질 이슈 원인 근거의 빠른 확보</h3>
+              <p>오류 로그, 과거 조치 이력, 점검 기준을 통합 조회해 현장 엔지니어가 품질 판단에 필요한 근거를 빠르게 확인할 수 있습니다.</p>
             </div>
             <div class="detail-visual" :style="{ transform: `translateY(${(-sectionOffsets.ragDetail * 22).toFixed(2)}px)` }">
               <img class="detail-image" :src="ragImageUrl" alt="ECU 데이터 매핑 이미지" />
@@ -199,8 +227,8 @@ const resetCardPointer = (event: MouseEvent) => {
           <div id="aiDetail" class="observe-target detail-block reverse" :class="{ visible: visibleSections.aiDetail }" :style="sectionStyle('aiDetail')">
             <div class="detail-text">
               <span class="tag">PREDICTIVE AI</span>
-              <h3>미래를 대비하는 데이터 분석</h3>
-              <p>ECU의 미세한 파형 변화와 로그 패턴을 분석하여 고장이 발생하기 전 징후를 감지합니다. 예방적 유지보수를 통해 시스템 다운타임을 최소화하십시오.</p>
+              <h3>품질 리스크의 선제적 대응</h3>
+              <p>센서 이상 패턴과 실패 확률을 기반으로 우선 조치 대상을 제시해 다운타임과 불량 확산 위험을 줄입니다.</p>
             </div>
             <div class="detail-visual" :style="{ transform: `translateY(${(-sectionOffsets.aiDetail * 22).toFixed(2)}px)` }">
               <img class="detail-image" :src="predictImageUrl" alt="AI 패턴 분석 이미지" />
@@ -212,6 +240,9 @@ const resetCardPointer = (event: MouseEvent) => {
           <div id="serviceSelect" class="observe-target welcome-banner reveal-focus" :class="{ visible: visibleSections.serviceSelect }" :style="sectionStyle('serviceSelect')">
             <h2 class="welcome-text">지능형 서비스 선택</h2>
             <p class="welcome-sub">차량 제어 유닛(ECU) 데이터를 관리하는 중앙 제어 센터입니다.</p>
+            <div class="quick-actions">
+              <button class="quick-action-btn" @click="handleNav('history')">요청 이력 보기</button>
+            </div>
           </div>
 
           <div class="service-grid">
@@ -228,32 +259,42 @@ const resetCardPointer = (event: MouseEvent) => {
               </div>
             </div>
           
-            <div class="service-card" @click="handleNav('history')" @mousemove="handleCardPointerMove" @mouseleave="resetCardPointer">
+            <div class="service-card" @click="handleNav('analytics')" @mousemove="handleCardPointerMove" @mouseleave="resetCardPointer">
               <div class="card-glow secondary"></div>
               <div class="card-inner">
                 <div class="card-header">
-                  <span class="badge badge-secondary">데이터 로그</span>
+                  <span class="badge badge-secondary">AIOPS 운영</span>
                   <div class="card-icon">📊</div>
                 </div>
-                <h3 class="card-title">예측형 AI 분석</h3>
-                <p class="card-description">과거 요청 데이터와 AI 응답 이력을 분석하여 고장 징후 및 서비스 로그를 관리합니다.</p>
-                <div class="card-footer">분석 시작 <span class="arrow">→</span></div>
+                <h3 class="card-title">DevOps 운영 현황</h3>
+                <p class="card-description">이벤트, 드리프트, 모델 상태를 한 화면에서 모니터링하고 운영 리스크를 점검합니다.</p>
+                <div class="card-footer">운영 현황 보기 <span class="arrow">→</span></div>
               </div>
             </div>
           </div>
 
           <div class="metric-row">
             <div class="metric-card">
-              <span class="metric-label">API 호출 성공률</span>
-              <span class="metric-value text-success">99.9%</span>
+              <span class="metric-label">Incident 완료율</span>
+              <span class="metric-value text-success">
+                {{ successRateText() }}
+              </span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">평균 응답 속도</span>
-              <span class="metric-value">1.2s</span>
+              <span class="metric-label">24시간 Critical/Fallback</span>
+              <span class="metric-value">
+                {{
+                  aiopsOverview
+                    ? `${aiopsOverview.critical_events_last_24h} / ${aiopsOverview.fallback_events_last_24h}`
+                    : '-'
+                }}
+              </span>
             </div>
             <div class="metric-card">
-              <span class="metric-label">처리 토큰 수</span>
-              <span class="metric-value">4.2M</span>
+              <span class="metric-label">평균 Incident 지연</span>
+              <span class="metric-value">
+                {{ aiopsOverview ? `${Number(aiopsOverview.avg_incident_latency_seconds || 0).toFixed(1)}s` : '-' }}
+              </span>
             </div>
           </div>
         </section>
@@ -382,6 +423,24 @@ const resetCardPointer = (event: MouseEvent) => {
   height: 2px;
   margin-top: 16px;
   background: linear-gradient(90deg, rgba(153, 196, 255, 0.95), rgba(153, 196, 255, 0.05));
+}
+.quick-actions {
+  margin-top: 14px;
+}
+.quick-action-btn {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(12, 18, 30, 0.55);
+  color: #dbeafe;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+.quick-action-btn:hover {
+  border-color: rgba(147, 197, 253, 0.7);
+  background: rgba(30, 58, 138, 0.35);
 }
 .text-glow { background: linear-gradient(95deg, #dce9ff 0%, #97beff 48%, #709fff 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .service-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 34px; }
