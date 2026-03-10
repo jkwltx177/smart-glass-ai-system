@@ -127,3 +127,15 @@ class RetrainJob(Base):
     created_at = Column(DateTime, default=func.now(), index=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+
+
+class IncidentReport(Base):
+    __tablename__ = "incident_reports"
+
+    report_pk = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    incident_id = Column(BigInteger, index=True, nullable=False)
+    report_type = Column(String(30), nullable=False, default="quality")
+    report_url = Column(String(500), nullable=True)
+    html_report_url = Column(String(500), nullable=True)
+    summary = Column(String(255), nullable=True)
+    generated_at = Column(DateTime, default=func.now(), index=True)
