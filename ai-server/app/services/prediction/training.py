@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -128,6 +129,14 @@ def _time_split(x: np.ndarray, y_cls: np.ndarray, y_rul: np.ndarray, ratio: floa
     )
 
 
+def _validate_rmse_threshold(metrics: Dict[str, float]) -> None:
+    threshold = _safe_float(os.getenv("PREDICTION_MAX_VALID_RMSE", "0.35"), 0.35)
+    rmse = _safe_float(metrics.get("valid_rmse_failure"), 0.0)
+    metrics["rmse_threshold"] = float(threshold)
+    if rmse > threshold:
+        raise RuntimeError(f"rmse_threshold_exceeded:{rmse:.6f}>{threshold:.6f}")
+
+
 def train_prediction_models(
     db: Session,
     *,
@@ -211,10 +220,12 @@ def train_prediction_models(
         metrics: Dict[str, float] = {
             "valid_logloss": float(log_loss(y_cls_valid, cls_pred)),
             "valid_auc": float(roc_auc_score(y_cls_valid, cls_pred)),
+            "valid_rmse_failure": float(np.sqrt(np.mean((cls_pred - y_cls_valid) ** 2))),
             "valid_mae_rul": float(mean_absolute_error(y_rul_valid, rul_pred)),
             "train_samples": float(x_train.shape[0]),
             "valid_samples": float(x_valid.shape[0]),
         }
+        _validate_rmse_threshold(metrics)
 
         failure_path = model_dir / "lgbm_failure.txt"
         rul_path = model_dir / "lgbm_rul.txt"
@@ -248,10 +259,12 @@ def train_prediction_models(
         metrics = {
             "valid_logloss": float(log_loss(y_cls_valid, cls_pred)),
             "valid_auc": float(roc_auc_score(y_cls_valid, cls_pred)),
+            "valid_rmse_failure": float(np.sqrt(np.mean((cls_pred - y_cls_valid) ** 2))),
             "valid_mae_rul": float(mean_absolute_error(y_rul_valid, rul_pred)),
             "train_samples": float(x_train.shape[0]),
             "valid_samples": float(x_valid.shape[0]),
         }
+        _validate_rmse_threshold(metrics)
         failure_path = model_dir / "sklearn_failure.joblib"
         rul_path = model_dir / "sklearn_rul.joblib"
         joblib.dump(cls_model, failure_path)

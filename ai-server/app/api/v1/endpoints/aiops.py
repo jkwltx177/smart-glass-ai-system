@@ -1,14 +1,19 @@
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+import os
+from datetime import datetime
+
 from app.schemas.api_models import (
     AIOpsAlertsResponse,
     AIOpsDriftResponse,
     AIOpsMetricsResponse,
     AIOpsOverviewResponse,
+    AIOpsReportResponse,
+    AIOpsDeploymentResponse,
     ModelRegistryResponse,
     RetrainJobsResponse,
     RetrainRequest,
@@ -25,6 +30,8 @@ from app.services.aiops import (
     run_drift_cycle_once,
     run_retrain_cycle_once,
 )
+from app.services.aiops.deployment import get_deployment_state, promote_retrain_job, rollback_deployment
+from app.services.aiops.reporting import generate_aiops_pdf_report
 from app.services.auth.token_verifier import verify_bearer_token
 
 
@@ -108,3 +115,77 @@ async def trigger_drift_cycle(
     _ = token_payload
     detected = run_drift_cycle_once()
     return {"status": "ok", "drift_detected": detected}
+
+
+@router.post("/report", response_model=AIOpsReportResponse)
+async def generate_aiops_report(
+    db: Session = Depends(get_db),
+    token_payload: Dict[str, Any] = Depends(verify_bearer_token),
+):
+    _ = token_payload
+    out_path, summary = generate_aiops_pdf_report(db)
+    return {
+        "report_url": f"/static/reports/{os.path.basename(out_path)}",
+        "summary": summary,
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
+@router.get("/deployment", response_model=AIOpsDeploymentResponse)
+async def get_model_deployment(
+    token_payload: Dict[str, Any] = Depends(verify_bearer_token),
+):
+    _ = token_payload
+    state = get_deployment_state()
+    return {
+        "status": "ok",
+        "current": state.get("current"),
+        "previous": state.get("previous"),
+        "history": state.get("history") or [],
+    }
+
+
+@router.post("/deployment/promote", response_model=AIOpsDeploymentResponse)
+async def promote_model_candidate(
+    job_id: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    token_payload: Dict[str, Any] = Depends(verify_bearer_token),
+):
+    try:
+        raw = str(job_id).strip()
+        numeric = int(raw.split("_")[-1]) if "_" in raw else int(raw)
+        result = promote_retrain_job(
+            db,
+            job_id=numeric,
+            requested_by=str(token_payload.get("sub", "") or "unknown"),
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="job_id must be numeric or retrain_job_<id>")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    state = get_deployment_state()
+    return {
+        "status": str(result.get("status", "ok")),
+        "current": state.get("current"),
+        "previous": state.get("previous"),
+        "history": state.get("history") or [],
+    }
+
+
+@router.post("/deployment/rollback", response_model=AIOpsDeploymentResponse)
+async def rollback_model_deployment(
+    db: Session = Depends(get_db),
+    token_payload: Dict[str, Any] = Depends(verify_bearer_token),
+):
+    try:
+        result = rollback_deployment(db, requested_by=str(token_payload.get("sub", "") or "unknown"))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    state = get_deployment_state()
+    return {
+        "status": str(result.get("status", "ok")),
+        "current": state.get("current"),
+        "previous": state.get("previous"),
+        "history": state.get("history") or [],
+        "rolled_back_from": result.get("rolled_back_from"),
+    }

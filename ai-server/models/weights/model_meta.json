@@ -1,17 +1,19 @@
 {
   "model_target": "prediction",
-  "version": "lightgbm-retrained-20260310053335",
+  "version": "lightgbm-retrained-20260310084308",
   "algorithm": "lightgbm",
-  "trained_at": "2026-03-10T05:33:35.795802",
+  "trained_at": "2026-03-10T08:43:08.166805",
   "period_months": 3,
-  "sample_count": 357,
-  "positive_ratio": 0.2689075630252101,
+  "sample_count": 376,
+  "positive_ratio": 0.27925531914893614,
   "metrics": {
-    "valid_logloss": 0.6465772369024594,
-    "valid_auc": 0.974074074074074,
-    "valid_mae_rul": 3.479461347658967,
-    "train_samples": 285.0,
-    "valid_samples": 72.0
+    "valid_logloss": 0.20919889994206367,
+    "valid_auc": 0.9795918367346939,
+    "valid_rmse_failure": 0.21823987196853004,
+    "valid_mae_rul": 3.9983679240901644,
+    "train_samples": 300.0,
+    "valid_samples": 76.0,
+    "rmse_threshold": 0.35
   },
   "artifacts": {
     "failure_model": "/Users/bangdawon_skala/workspace/skala-intro/GenerativeAIservice_fin/smart-glass-ai-system/ai-server/models/weights/lgbm_failure.txt",

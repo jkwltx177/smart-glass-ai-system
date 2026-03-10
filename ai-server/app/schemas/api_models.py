@@ -141,6 +141,7 @@ class AIOpsAlertsResponse(BaseModel):
 
 class AIOpsDriftResponse(BaseModel):
     drift_detected: bool
+    retrain_recommended: bool = False
     events: List[Dict[str, Any]]
     generated_at: str
 
@@ -191,6 +192,20 @@ class ModelRegistryItem(BaseModel):
 
 class ModelRegistryResponse(BaseModel):
     items: List[ModelRegistryItem]
+
+
+class AIOpsReportResponse(BaseModel):
+    report_url: str
+    summary: str
+    generated_at: str
+
+
+class AIOpsDeploymentResponse(BaseModel):
+    status: str
+    current: Optional[Dict[str, Any]] = None
+    previous: Optional[Dict[str, Any]] = None
+    history: List[Dict[str, Any]] = []
+    rolled_back_from: Optional[Dict[str, Any]] = None
 
 # --- F. Reports ---
 class ReportResponse(BaseModel):

@@ -1,5 +1,6 @@
 import json
 import math
+import os
 from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -130,9 +131,32 @@ def _sensor_mean(rows: List[SensorTimeseries], field: str) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def _rmse(values: List[float], labels: List[float]) -> float:
+    if not values or not labels or len(values) != len(labels):
+        return 0.0
+    mse = sum((float(v) - float(y)) ** 2 for v, y in zip(values, labels)) / len(values)
+    return round(math.sqrt(mse), 4)
+
+
+def _prediction_failure_label(db: Session, prediction: Prediction, *, horizon_minutes: int = 60) -> Optional[float]:
+    if getattr(prediction, "incident_id", None) is None or not getattr(prediction, "predicted_at", None):
+        return None
+    horizon_end = prediction.predicted_at + timedelta(minutes=max(1, int(horizon_minutes)))
+    failure_seen = (
+        db.query(SensorTimeseries.ts_id)
+        .filter(SensorTimeseries.incident_id == prediction.incident_id)
+        .filter(SensorTimeseries.timestamp >= prediction.predicted_at)
+        .filter(SensorTimeseries.timestamp <= horizon_end)
+        .filter(SensorTimeseries.failure.is_(True))
+        .first()
+    )
+    return 1.0 if failure_seen else 0.0
+
+
 def compute_aiops_drift(db: Session) -> Dict[str, Any]:
     events: List[Dict[str, Any]] = []
     drift_detected = False
+    retrain_recommended = False
 
     recent_rows = (
         db.query(SensorTimeseries)
@@ -155,6 +179,7 @@ def compute_aiops_drift(db: Session) -> Dict[str, Any]:
             delta_ratio = abs(recent_mean - baseline_mean) / max(abs(baseline_mean), 1.0)
             if delta_ratio >= 0.25:
                 drift_detected = True
+                retrain_recommended = True
                 events.append(
                     {
                         "category": "data_drift",
@@ -189,6 +214,7 @@ def compute_aiops_drift(db: Session) -> Dict[str, Any]:
         anomaly_shift = abs(recent_anomaly - baseline_anomaly)
         if failure_shift >= 0.15 or anomaly_shift >= 0.15:
             drift_detected = True
+            retrain_recommended = True
             events.append(
                 {
                     "category": "model_drift",
@@ -198,6 +224,37 @@ def compute_aiops_drift(db: Session) -> Dict[str, Any]:
                     "recent_anomaly_score": recent_anomaly,
                     "baseline_anomaly_score": baseline_anomaly,
                     "severity": "HIGH" if max(failure_shift, anomaly_shift) >= 0.25 else "MEDIUM",
+                }
+            )
+
+        recent_pairs = [
+            (_safe_float(row.failure_probability), _prediction_failure_label(db, row))
+            for row in recent_predictions
+        ]
+        baseline_pairs = [
+            (_safe_float(row.failure_probability), _prediction_failure_label(db, row))
+            for row in baseline_predictions
+        ]
+        recent_pairs = [(pred, label) for pred, label in recent_pairs if label is not None]
+        baseline_pairs = [(pred, label) for pred, label in baseline_pairs if label is not None]
+        recent_rmse = _rmse([pred for pred, _ in recent_pairs], [label for _, label in recent_pairs])
+        baseline_rmse = _rmse([pred for pred, _ in baseline_pairs], [label for _, label in baseline_pairs])
+        rmse_threshold = _safe_float(os.getenv("AIOPS_FAILURE_RMSE_THRESHOLD", "0.35"), 0.35)
+        rmse_degradation_ratio = _safe_float(os.getenv("AIOPS_FAILURE_RMSE_DEGRADATION_RATIO", "1.15"), 1.15)
+        if recent_rmse > 0.0 and (
+            recent_rmse >= rmse_threshold
+            or (baseline_rmse > 0.0 and recent_rmse >= baseline_rmse * max(1.0, rmse_degradation_ratio))
+        ):
+            drift_detected = True
+            retrain_recommended = True
+            events.append(
+                {
+                    "category": "performance_drift",
+                    "metric": "failure_probability_rmse",
+                    "recent_rmse": recent_rmse,
+                    "baseline_rmse": baseline_rmse,
+                    "threshold": rmse_threshold,
+                    "severity": "HIGH" if recent_rmse >= max(rmse_threshold * 1.2, baseline_rmse * 1.3 if baseline_rmse > 0 else 0.0) else "MEDIUM",
                 }
             )
 
@@ -217,6 +274,7 @@ def compute_aiops_drift(db: Session) -> Dict[str, Any]:
     baseline_daily_fallbacks = older_fallbacks / 6.0 if older_fallbacks else 0.0
     if recent_fallbacks >= max(3.0, baseline_daily_fallbacks * 2.0):
         drift_detected = True
+        retrain_recommended = True
         events.append(
             {
                 "category": "service_drift",
@@ -229,6 +287,7 @@ def compute_aiops_drift(db: Session) -> Dict[str, Any]:
 
     return {
         "drift_detected": drift_detected,
+        "retrain_recommended": retrain_recommended,
         "events": events,
         "generated_at": datetime.utcnow().isoformat(),
     }

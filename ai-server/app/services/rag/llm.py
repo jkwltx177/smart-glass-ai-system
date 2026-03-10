@@ -201,28 +201,16 @@ def _answer_question_sync(vs: FAISS, question: str, qwen_instance=None) -> Dict[
     topic = top_meta.get("title") or top_meta.get("OO") or ""
 
     prompt = (
-        "역할: 내부 지식베이스 기반 RAG 어시스턴트.
-"
-        "규칙:
-"
-        "1) 반드시 한국어로만 답한다.
-"
-        "2) 아래 CONTEXT 안의 정보만 사용한다. CONTEXT 밖 지식/추측/상식은 금지.
-"
-        "3) 충분한 정보가 없으면 정확히 다음 문장으로만 답한다: '지식베이스에서 답을 찾지 못했습니다.'
-"
-        "4) 인용한 문장 뒤에는 [S1], [S2] 형태의 마커를 붙인다.
-"
-        f"주제 용어: {topic}
-"
-        f"핵심어(강 앵커): {strong_txt}
-
-"
-        f"{ctx}
-
-"
-        f"사용자 질문: {question}
-"
+        "역할: 내부 지식베이스 기반 RAG 어시스턴트.\n"
+        "규칙:\n"
+        "1) 반드시 한국어로만 답한다.\n"
+        "2) 아래 CONTEXT 안의 정보만 사용한다. CONTEXT 밖 지식/추측/상식은 금지.\n"
+        "3) 충분한 정보가 없으면 정확히 다음 문장으로만 답한다: '지식베이스에서 답을 찾지 못했습니다.'\n"
+        "4) 인용한 문장 뒤에는 [S1], [S2] 형태의 마커를 붙인다.\n"
+        f"주제 용어: {topic}\n"
+        f"핵심어(강 앵커): {strong_txt}\n\n"
+        f"{ctx}\n\n"
+        f"사용자 질문: {question}\n"
     )
     tB1 = time.perf_counter()
 

@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -7,9 +8,9 @@ from typing import Any, Dict, Optional, Tuple
 
 from app.core.database import SessionLocal
 from app.models.domain import Prediction, RetrainJob, SensorTimeseries
-from app.services.prediction import reload_predictor, train_prediction_models
+from app.services.prediction import train_prediction_models
 from app.services.prediction.preprocessing import SENSOR_FIELDS
-from .analytics import compute_aiops_drift, compute_aiops_overview
+from .analytics import compute_aiops_drift, compute_aiops_overview, queue_retrain_job
 from .events import emit_aiops_event
 
 
@@ -36,6 +37,17 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _parse_rmse_gate_error(message: str) -> Dict[str, float]:
+    text = str(message or "")
+    match = re.search(r"rmse_threshold_exceeded:([0-9.]+)>([0-9.]+)", text)
+    if not match:
+        return {}
+    return {
+        "valid_rmse_failure": _safe_float(match.group(1)),
+        "rmse_threshold": _safe_float(match.group(2)),
+    }
+
+
 def _parse_payload(raw: Optional[str]) -> Dict[str, Any]:
     if not raw:
         return {}
@@ -54,6 +66,13 @@ def _write_artifact(payload: Dict[str, Any], model_target: str, job_id: int) -> 
     with out_path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, indent=2, default=str)
     return str(out_path)
+
+
+def _candidate_model_dir(job_id: int) -> Path:
+    base_dir = Path(os.getenv("AIOPS_RETRAIN_ARTIFACT_DIR", "storage/retrain-artifacts"))
+    candidate_dir = base_dir / "candidates" / f"job_{int(job_id)}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    return candidate_dir
 
 
 def _build_retrain_snapshot(job: RetrainJob) -> Dict[str, Any]:
@@ -171,9 +190,7 @@ def _process_one_retrain_job(job_id: int) -> Tuple[bool, str]:
                 )
                 return False, "unsupported_model_target"
 
-            model_dir = Path(os.getenv("PREDICTION_MODEL_DIR", "models/weights"))
-            if not model_dir.is_absolute():
-                model_dir = Path(__file__).resolve().parents[3] / model_dir
+            model_dir = _candidate_model_dir(job_id)
             result = train_prediction_models(
                 db,
                 period_months=int(job.period_months or 3),
@@ -193,7 +210,6 @@ def _process_one_retrain_job(job_id: int) -> Tuple[bool, str]:
             }
 
         artifact_path = _write_artifact(snapshot, model_target=model_target, job_id=job_id)
-        reload_predictor(model_dir=str(model_dir))
         _mark_job_done(
             job_id,
             status="completed",
@@ -201,23 +217,105 @@ def _process_one_retrain_job(job_id: int) -> Tuple[bool, str]:
                 "artifact_path": artifact_path,
                 "model_artifacts": snapshot.get("artifact_paths", {}),
                 "model_version": snapshot.get("model_version"),
+                "deployment_status": "ready",
                 "sample_count": _safe_int(snapshot.get("sample_count"), 0),
                 "positive_ratio": round(_safe_float(snapshot.get("positive_ratio")), 6),
                 "metrics": snapshot.get("metrics", {}),
+                "gate_passed": True,
+                "gate_metric": "failure_probability_rmse",
+                "gate_threshold": _safe_float(snapshot.get("metrics", {}).get("rmse_threshold")),
+                "gate_value": _safe_float(snapshot.get("metrics", {}).get("valid_rmse_failure")),
             },
-            message="Retrain job completed (model retrained and reloaded)",
+            message="Retrain job completed (candidate ready for deploy)",
             severity="INFO",
         )
         return True, "completed"
     except Exception as exc:
+        gate_metrics = _parse_rmse_gate_error(str(exc))
+        is_gate_failed = bool(gate_metrics)
+        payload_patch = {"error": str(exc)}
+        if is_gate_failed:
+            payload_patch.update(
+                {
+                    "reason": "rmse_gate_not_passed",
+                    "gate_passed": False,
+                    "gate_metric": "failure_probability_rmse",
+                    "gate_threshold": gate_metrics.get("rmse_threshold", 0.0),
+                    "gate_value": gate_metrics.get("valid_rmse_failure", 0.0),
+                }
+            )
         _mark_job_done(
             job_id,
             status="failed",
-            payload_patch={"error": str(exc)},
-            message="Retrain job failed",
-            severity="HIGH",
+            payload_patch=payload_patch,
+            message="Retrain job failed: RMSE gate not passed" if is_gate_failed else "Retrain job failed",
+            severity="MEDIUM" if is_gate_failed else "HIGH",
         )
         return False, str(exc)
+
+
+def _should_auto_queue_retrain(db, *, now: datetime) -> bool:
+    active_job = (
+        db.query(RetrainJob.job_id)
+        .filter(RetrainJob.model_target == "prediction")
+        .filter(RetrainJob.status.in_(["queued", "running"]))
+        .first()
+    )
+    if active_job:
+        return False
+
+    cooldown_minutes = max(10, _safe_int(os.getenv("AIOPS_AUTO_RETRAIN_COOLDOWN_MINUTES", "360"), 360))
+    recent_auto_job = (
+        db.query(RetrainJob.job_id)
+        .filter(RetrainJob.model_target == "prediction")
+        .filter(RetrainJob.trigger_reason == "auto_drift")
+        .filter(RetrainJob.created_at >= now - timedelta(minutes=cooldown_minutes))
+        .order_by(RetrainJob.created_at.desc())
+        .first()
+    )
+    return recent_auto_job is None
+
+
+def _auto_queue_retrain_if_needed(db, *, drift: Dict[str, Any], now: datetime) -> Optional[Dict[str, Any]]:
+    if not drift.get("drift_detected") or not drift.get("retrain_recommended"):
+        return None
+
+    categories = {str(event.get("category", "")).strip().lower() for event in drift.get("events", [])}
+    auto_categories = {"data_drift", "performance_drift", "service_drift", "model_drift"}
+    if not (categories & auto_categories):
+        return None
+    if not _should_auto_queue_retrain(db, now=now):
+        return None
+
+    period_months = max(1, _safe_int(os.getenv("AIOPS_AUTO_RETRAIN_PERIOD_MONTHS", "3"), 3))
+    queued = queue_retrain_job(
+        db,
+        period_months=period_months,
+        model_target="prediction",
+        trigger_reason="auto_drift",
+        requested_by="aiops-runtime",
+        payload={
+            "requested_from": "aiops.runtime.auto-trigger",
+            "detected_categories": sorted(categories),
+            "drift_events": drift.get("events", [])[:10],
+        },
+    )
+    emit_aiops_event(
+        event_type="auto_retrain_queued",
+        severity="HIGH",
+        service="aiops",
+        stage="retrain",
+        model_name="prediction",
+        status="queued",
+        message="Automatic retrain queued from drift detection",
+        payload={
+            "job_id": queued.get("job_id"),
+            "period_months": period_months,
+            "detected_categories": sorted(categories),
+        },
+        db=db,
+    )
+    return queued
 
 
 def run_retrain_cycle_once(*, limit: int = 3) -> int:
@@ -264,6 +362,7 @@ def run_drift_cycle_once() -> bool:
                 )
                 _LAST_DRIFT_SIGNATURE = signature
                 _LAST_DRIFT_EMITTED_AT = now
+            _auto_queue_retrain_if_needed(db, drift=drift, now=now)
 
         if _LAST_HEARTBEAT_AT is None or (now - _LAST_HEARTBEAT_AT) >= timedelta(minutes=10):
             emit_aiops_event(
