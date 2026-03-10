@@ -8,6 +8,7 @@ from app.api.v1.endpoints import incidents, kb, rag, predictive, aiops, reportin
 import os
 from app.core.database import engine, Base
 from app.models.domain import AIOpsEvent, RetrainJob, IncidentReport
+from app.services.aiops import start_aiops_runtime, stop_aiops_runtime
 
 app = FastAPI(
     title="Smart Glass AI System API",
@@ -46,6 +47,12 @@ def ensure_aiops_tables() -> None:
         bind=engine,
         tables=[AIOpsEvent.__table__, RetrainJob.__table__, IncidentReport.__table__],
     )
+    start_aiops_runtime()
+
+
+@app.on_event("shutdown")
+def shutdown_aiops_runtime() -> None:
+    stop_aiops_runtime()
 
 @app.get("/health")
 def health_check():

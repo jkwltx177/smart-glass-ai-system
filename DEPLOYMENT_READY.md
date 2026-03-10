@@ -156,7 +156,22 @@ PREDICTION_MODEL_DIR=models/weights
 # 디버그
 DEBUG=False
 LOG_LEVEL=INFO
+
+# AIOps Runtime
+AIOPS_RETRAIN_POLL_SECONDS=15
+AIOPS_MONITOR_INTERVAL_SECONDS=60
+AIOPS_RETRAIN_ARTIFACT_DIR=storage/retrain-artifacts
 ```
+
+### 8. AIOps 런타임 체크 포인트
+
+- 앱 시작 시 백그라운드 워커 2개가 자동 실행됩니다.
+  - `aiops-retrain-worker`: 재학습 큐(`retrain_jobs`) 처리
+  - `aiops-monitor-worker`: 드리프트 점검 + heartbeat 이벤트 발행
+- 운영 제어 API(인증 필요):
+  - `POST /api/v1/aiops/runtime/retrain-cycle`
+  - `POST /api/v1/aiops/runtime/drift-cycle`
+  - `GET /api/v1/aiops/retrain/jobs`
 
 ### 시스템 필수 패키지
 ```bash

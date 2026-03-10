@@ -48,9 +48,25 @@ type ModelItem = {
   status: string
 }
 
+type RetrainJobItem = {
+  job_id: string
+  model_target: string
+  period_months: number
+  trigger_reason: string
+  requested_by?: string | null
+  status: string
+  created_at?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  payload?: Record<string, unknown>
+}
+
 const emit = defineEmits<{
   back: []
 }>()
+
+const ACCESS_TOKEN_STORAGE_KEY = 'accessToken'
+const TOKEN_TYPE_STORAGE_KEY = 'tokenType'
 
 const loading = ref(true)
 const refreshing = ref(false)
@@ -61,7 +77,16 @@ const severitySummary = ref<Record<string, number>>({})
 const driftDetected = ref(false)
 const driftEvents = ref<DriftEvent[]>([])
 const models = ref<ModelItem[]>([])
+const retrainJobs = ref<RetrainJobItem[]>([])
+const retrainStatusSummary = ref<Record<string, number>>({})
 const pollStamp = ref('')
+const controlBusy = ref(false)
+const controlMessage = ref('')
+const retrainModelTarget = ref('prediction')
+const retrainPeriodMonths = ref(3)
+const retrainTriggerReason = ref('manual')
+const retrainCycleLimit = ref(3)
+const retrainStatusFilter = ref('')
 let refreshTimer: number | null = null
 
 const summaryCards = computed(() => {
@@ -110,6 +135,21 @@ const latestPredictionStats = computed(() => {
 
 const topAlerts = computed(() => alerts.value.slice(0, 8))
 const topModels = computed(() => models.value.slice(0, 6))
+const topRetrainJobs = computed(() => retrainJobs.value.slice(0, 8))
+const queuedJobCount = computed(() => Number(retrainStatusSummary.value.queued || 0))
+const runningJobCount = computed(() => Number(retrainStatusSummary.value.running || 0))
+const completedJobCount = computed(() => Number(retrainStatusSummary.value.completed || 0))
+
+const hasAuthToken = () => !!localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
+
+const authHeaders = (): Record<string, string> => {
+  const accessToken = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)
+  const tokenType = localStorage.getItem(TOKEN_TYPE_STORAGE_KEY) || 'Bearer'
+  if (!accessToken) {
+    throw new Error('로그인 토큰이 없습니다. 다시 로그인해주세요.')
+  }
+  return { Authorization: `${tokenType} ${accessToken}` }
+}
 
 const formatDate = (value?: string | null) => {
   if (!value) return '-'
@@ -120,9 +160,43 @@ const formatDate = (value?: string | null) => {
 
 const severityClass = (severity?: string | null) => {
   const normalized = String(severity || '').toLowerCase()
+  if (normalized === 'failed') return 'sev-high'
+  if (normalized === 'queued' || normalized === 'running') return 'sev-medium'
+  if (normalized === 'completed') return 'sev-low'
   if (normalized === 'high' || normalized === 'critical') return 'sev-high'
   if (normalized === 'medium') return 'sev-medium'
   return 'sev-low'
+}
+
+const apiGet = async (url: string, useAuth = false) => {
+  const headers: Record<string, string> = {}
+  if (useAuth) {
+    Object.assign(headers, authHeaders())
+  }
+  const response = await fetch(url, { headers })
+  if (!response.ok) {
+    throw new Error(`${url} 요청 실패 (${response.status})`)
+  }
+  return response.json()
+}
+
+const refreshRetrainJobs = async () => {
+  if (!hasAuthToken()) {
+    retrainJobs.value = []
+    retrainStatusSummary.value = {}
+    return
+  }
+  const query = new URLSearchParams()
+  if (retrainStatusFilter.value.trim()) {
+    query.set('status', retrainStatusFilter.value.trim().toLowerCase())
+  }
+  query.set('limit', '30')
+  const data = await apiGet(`/api/aiops/retrain/jobs?${query.toString()}`, true)
+  retrainJobs.value = Array.isArray(data?.items) ? data.items : []
+  retrainStatusSummary.value =
+    data?.status_summary && typeof data.status_summary === 'object'
+      ? data.status_summary
+      : {}
 }
 
 const refreshAll = async (silent = false) => {
@@ -165,12 +239,81 @@ const refreshAll = async (silent = false) => {
     driftDetected.value = !!driftData?.drift_detected
     driftEvents.value = Array.isArray(driftData?.events) ? driftData.events : []
     models.value = Array.isArray(modelsData?.items) ? modelsData.items : []
+    await refreshRetrainJobs()
     pollStamp.value = new Date().toLocaleTimeString()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'AIOps 데이터를 불러오지 못했습니다.'
   } finally {
     loading.value = false
     refreshing.value = false
+  }
+}
+
+const runRetrainCycle = async () => {
+  controlBusy.value = true
+  controlMessage.value = ''
+  try {
+    const headers = authHeaders()
+    const limit = Math.max(1, Math.min(10, Number(retrainCycleLimit.value || 1)))
+    const res = await fetch(`/api/aiops/runtime/retrain-cycle?limit=${limit}`, {
+      method: 'POST',
+      headers,
+    })
+    if (!res.ok) throw new Error(`재학습 사이클 실행 실패 (${res.status})`)
+    const data = await res.json()
+    controlMessage.value = `재학습 사이클 실행 완료: 처리 ${Number(data?.processed_jobs || 0)}건`
+    await refreshAll(true)
+  } catch (err) {
+    controlMessage.value = err instanceof Error ? err.message : '재학습 사이클 실행 실패'
+  } finally {
+    controlBusy.value = false
+  }
+}
+
+const runDriftCycle = async () => {
+  controlBusy.value = true
+  controlMessage.value = ''
+  try {
+    const res = await fetch('/api/aiops/runtime/drift-cycle', {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+    if (!res.ok) throw new Error(`드리프트 점검 실행 실패 (${res.status})`)
+    const data = await res.json()
+    controlMessage.value = `드리프트 점검 완료: ${data?.drift_detected ? '감지됨' : '정상'}`
+    await refreshAll(true)
+  } catch (err) {
+    controlMessage.value = err instanceof Error ? err.message : '드리프트 점검 실행 실패'
+  } finally {
+    controlBusy.value = false
+  }
+}
+
+const requestRetrain = async () => {
+  controlBusy.value = true
+  controlMessage.value = ''
+  try {
+    const payload = {
+      period_months: Math.max(1, Math.min(24, Number(retrainPeriodMonths.value || 1))),
+      model_target: String(retrainModelTarget.value || 'prediction').slice(0, 100),
+      trigger_reason: String(retrainTriggerReason.value || 'manual').slice(0, 255),
+    }
+    const res = await fetch('/api/aiops/retrain', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw new Error(`재학습 요청 실패 (${res.status})`)
+    const data = await res.json()
+    controlMessage.value = `재학습 요청 등록: ${String(data?.job_id || '-')}`
+    await refreshAll(true)
+  } catch (err) {
+    controlMessage.value = err instanceof Error ? err.message : '재학습 요청 실패'
+  } finally {
+    controlBusy.value = false
   }
 }
 
@@ -344,6 +487,91 @@ onUnmounted(() => {
                 <span>{{ item.version }}</span>
                 <span>{{ item.prediction_count }}</span>
                 <span>{{ formatDate(item.last_used_at) }}</span>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel-grid tertiary">
+          <article class="panel control-panel">
+            <div class="panel-header">
+              <h2>Runtime Control</h2>
+              <span class="panel-note">인증 토큰 필요</span>
+            </div>
+            <div class="control-grid">
+              <label class="control-field">
+                <span>Model Target</span>
+                <input v-model="retrainModelTarget" type="text" maxlength="100" />
+              </label>
+              <label class="control-field">
+                <span>Period (months)</span>
+                <input v-model.number="retrainPeriodMonths" type="number" min="1" max="24" />
+              </label>
+              <label class="control-field wide">
+                <span>Trigger Reason</span>
+                <input v-model="retrainTriggerReason" type="text" maxlength="255" />
+              </label>
+            </div>
+            <div class="button-row">
+              <button class="control-btn primary" :disabled="controlBusy" @click="requestRetrain">
+                Retrain Request
+              </button>
+              <label class="control-field compact">
+                <span>Cycle Limit</span>
+                <input v-model.number="retrainCycleLimit" type="number" min="1" max="10" />
+              </label>
+              <button class="control-btn" :disabled="controlBusy" @click="runRetrainCycle">
+                Run Retrain Cycle
+              </button>
+              <button class="control-btn" :disabled="controlBusy" @click="runDriftCycle">
+                Run Drift Cycle
+              </button>
+            </div>
+            <p v-if="controlMessage" class="control-message">{{ controlMessage }}</p>
+          </article>
+
+          <article class="panel retrain-panel">
+            <div class="panel-header">
+              <h2>Retrain Queue</h2>
+              <div class="panel-note-group">
+                <span class="panel-note">queued {{ queuedJobCount }}</span>
+                <span class="panel-note">running {{ runningJobCount }}</span>
+                <span class="panel-note">completed {{ completedJobCount }}</span>
+              </div>
+            </div>
+            <div class="queue-toolbar">
+              <label class="control-field compact">
+                <span>Status Filter</span>
+                <select v-model="retrainStatusFilter" @change="refreshAll(true)">
+                  <option value="">all</option>
+                  <option value="queued">queued</option>
+                  <option value="running">running</option>
+                  <option value="completed">completed</option>
+                  <option value="failed">failed</option>
+                </select>
+              </label>
+            </div>
+            <div class="model-table">
+              <div class="model-row model-head retrain-head">
+                <span>Job</span>
+                <span>Status</span>
+                <span>Target</span>
+                <span>Created</span>
+              </div>
+              <div
+                v-for="job in topRetrainJobs"
+                :key="job.job_id"
+                class="model-row retrain-row"
+              >
+                <span>{{ job.job_id }}</span>
+                <span>
+                  <span class="severity-pill" :class="severityClass(job.status)">{{ job.status }}</span>
+                </span>
+                <span>{{ job.model_target }}</span>
+                <span>{{ formatDate(job.created_at) }}</span>
+              </div>
+              <div v-if="topRetrainJobs.length === 0" class="empty-note">
+                표시할 재학습 작업이 없습니다.
               </div>
             </div>
           </article>
@@ -526,6 +754,10 @@ onUnmounted(() => {
   grid-template-columns: 0.85fr 1.15fr;
 }
 
+.panel-grid.tertiary {
+  grid-template-columns: 1fr 1fr;
+}
+
 .panel {
   border-radius: 26px;
   padding: 22px;
@@ -662,10 +894,95 @@ onUnmounted(() => {
   color: #fecaca;
 }
 
+.control-panel,
+.retrain-panel {
+  min-height: 300px;
+}
+
+.control-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.control-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #8ea1b7;
+  font-size: 12px;
+}
+
+.control-field.wide {
+  grid-column: 1 / -1;
+}
+
+.control-field input,
+.control-field select {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(7, 14, 24, 0.78);
+  color: #f5f7fb;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.button-row {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 1fr 1fr;
+  gap: 10px;
+  align-items: end;
+}
+
+.control-field.compact {
+  min-width: 120px;
+}
+
+.control-btn {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(8, 16, 26, 0.7);
+  color: #dbe5f1;
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.control-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.control-btn.primary {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(37, 99, 235, 0.22);
+}
+
+.control-message {
+  margin: 12px 0 0;
+  color: #bbf7d0;
+  font-size: 13px;
+}
+
+.panel-note-group {
+  display: flex;
+  gap: 10px;
+}
+
+.queue-toolbar {
+  margin-top: 14px;
+}
+
+.retrain-head,
+.retrain-row {
+  grid-template-columns: 1.2fr 0.9fr 0.9fr 1fr;
+}
+
 @media (max-width: 960px) {
   .hero-panel,
   .panel-grid,
   .panel-grid.secondary,
+  .panel-grid.tertiary,
   .summary-grid,
   .mini-stats,
   .health-strip,
@@ -679,6 +996,10 @@ onUnmounted(() => {
   }
 
   .model-row {
+    grid-template-columns: 1fr;
+  }
+
+  .button-row {
     grid-template-columns: 1fr;
   }
 }
