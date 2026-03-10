@@ -9,6 +9,7 @@ from app.services.prediction import (
     build_timeseries_features_payload,
     predict_from_timeseries_summary,
 )
+from app.services.aiops import emit_aiops_event
 from app.core.database import SessionLocal
 from app.models.domain import ErrorLog, Incident, Prediction
 
@@ -60,9 +61,37 @@ def data_ingestion_node(state: AgentState):
                 window_size=120,
                 stride=30,
             )
+            emit_aiops_event(
+                event_type="ingestion_completed",
+                severity="INFO",
+                service="pipeline",
+                stage="ingestion",
+                incident_id=incident_pk if 'incident_pk' in locals() else None,
+                device_id=device_id,
+                status="ok",
+                message="Telemetry and error logs loaded",
+                payload={
+                    "error_log_count": len(recent_errors),
+                    "telemetry_row_count": telemetry_data.get("row_count", 0),
+                    "window_count": telemetry_data.get("window_count", 0),
+                    "valid_ratio": telemetry_data.get("valid_ratio", 0.0),
+                },
+                db=db,
+            )
     except Exception as e:
         print(f"Error fetching logs from DB: {e}")
         fallbacks.append(f"ingestion_db_error:{str(e)}")
+        emit_aiops_event(
+            event_type="ingestion_failed",
+            severity="HIGH",
+            service="pipeline",
+            stage="ingestion",
+            incident_id=int(incident_id) if str(incident_id).isdigit() else None,
+            device_id=device_id,
+            status="failed",
+            message="Failed to load telemetry or error logs",
+            payload={"error": str(e)},
+        )
         telemetry_data = {
             "source": "db.sensor_timeseries",
             "device_id": device_id,
@@ -91,9 +120,31 @@ def speech_vision_analysis_node(state: AgentState):
                 filename = asset.get("filename", "audio.webm")
         try:
             transcription = process_audio_upload(state["audio_content"], filename)
+            emit_aiops_event(
+                event_type="stt_completed",
+                severity="INFO",
+                service="pipeline",
+                stage="analysis",
+                incident_id=int(state["incident_id"]) if str(state.get("incident_id", "")).isdigit() else None,
+                device_id=state.get("equipment_id"),
+                status="ok",
+                message="Speech-to-text completed",
+                payload={"transcription_length": len(transcription)},
+            )
         except Exception as e:
             transcription = f"STT 에러: {str(e)}"
             fallbacks.append(f"stt_error:{str(e)}")
+            emit_aiops_event(
+                event_type="stt_failed",
+                severity="HIGH",
+                service="pipeline",
+                stage="analysis",
+                incident_id=int(state["incident_id"]) if str(state.get("incident_id", "")).isdigit() else None,
+                device_id=state.get("equipment_id"),
+                status="failed",
+                message="Speech-to-text failed",
+                payload={"error": str(e)},
+            )
 
     if state.get("image_content"):
         filename = "image.jpg"
@@ -105,9 +156,31 @@ def speech_vision_analysis_node(state: AgentState):
             # 기본적으로 general 분석을 수행합니다. 필요에 따라 변경 가능
             image_result = process_image_upload(state["image_content"], filename, "general")
             vision_analysis = image_result.get("analysis", "분석 결과 없음")
+            emit_aiops_event(
+                event_type="vision_completed",
+                severity="INFO",
+                service="pipeline",
+                stage="analysis",
+                incident_id=int(state["incident_id"]) if str(state.get("incident_id", "")).isdigit() else None,
+                device_id=state.get("equipment_id"),
+                status="ok",
+                message="Vision analysis completed",
+                payload={"analysis_length": len(vision_analysis)},
+            )
         except Exception as e:
             vision_analysis = f"비전 분석 에러: {str(e)}"
             fallbacks.append(f"vision_error:{str(e)}")
+            emit_aiops_event(
+                event_type="vision_failed",
+                severity="HIGH",
+                service="pipeline",
+                stage="analysis",
+                incident_id=int(state["incident_id"]) if str(state.get("incident_id", "")).isdigit() else None,
+                device_id=state.get("equipment_id"),
+                status="failed",
+                message="Vision analysis failed",
+                payload={"error": str(e)},
+            )
 
     return {
         "transcription": transcription,
@@ -153,8 +226,38 @@ def predictive_ai_node(state: AgentState):
                         )
                     )
                     db.commit()
+                    emit_aiops_event(
+                        event_type="prediction_completed",
+                        severity="INFO",
+                        service="prediction",
+                        stage="inference",
+                        incident_id=incident_pk,
+                        device_id=state.get("equipment_id"),
+                        model_name=model_name,
+                        status="ok",
+                        message="Prediction persisted",
+                        payload={
+                            "failure_probability": round(float(prob), 4),
+                            "predicted_rul_minutes": round(float(rul), 2),
+                            "anomaly_score": round(float(anomaly), 4),
+                            "model_source": model_version,
+                        },
+                        db=db,
+                    )
             except Exception as e:
                 fallbacks.append(f"prediction_persist_error:{str(e)}")
+                emit_aiops_event(
+                    event_type="prediction_persist_failed",
+                    severity="MEDIUM",
+                    service="prediction",
+                    stage="inference",
+                    incident_id=incident_pk,
+                    device_id=state.get("equipment_id"),
+                    model_name=model_name,
+                    status="degraded",
+                    message="Prediction persistence failed",
+                    payload={"error": str(e)},
+                )
     except Exception as e:
         fallbacks.append(f"prediction_error:{str(e)}")
         prob = 0.5
@@ -162,6 +265,18 @@ def predictive_ai_node(state: AgentState):
         anomaly = 0.5
         model_name = "fallback-default"
         summary = "예측 모델 오류로 기본값을 사용했습니다."
+        emit_aiops_event(
+            event_type="prediction_fallback",
+            severity="HIGH",
+            service="prediction",
+            stage="inference",
+            incident_id=incident_pk,
+            device_id=state.get("equipment_id"),
+            model_name=model_name,
+            status="fallback",
+            message="Prediction fallback activated",
+            payload={"error": str(e)},
+        )
     return {
         "failure_probability": prob,
         "predicted_rul": rul,
@@ -202,6 +317,21 @@ def rag_knowledge_node(state: AgentState):
         explanation = rag_result.answer
         risk_level = "HIGH" if rag_result.escalation_needed else "MEDIUM"
         escalation_required = rag_result.escalation_needed
+        emit_aiops_event(
+            event_type="rag_completed",
+            severity="INFO" if not escalation_required else "MEDIUM",
+            service="rag",
+            stage="retrieve_generate",
+            incident_id=int(state["incident_id"]) if str(state.get("incident_id", "")).isdigit() else None,
+            device_id=state.get("equipment_id"),
+            status="ok",
+            message="RAG pipeline completed",
+            payload={
+                "retrieved_doc_count": len(retrieved_docs),
+                "risk_level": risk_level,
+                "escalation_required": escalation_required,
+            },
+        )
     except Exception as e:
         fallbacks.append(f"rag_error:{str(e)}")
         context_docs = []
@@ -212,6 +342,17 @@ def rag_knowledge_node(state: AgentState):
         )
         risk_level = "MEDIUM"
         escalation_required = False
+        emit_aiops_event(
+            event_type="rag_fallback",
+            severity="HIGH",
+            service="rag",
+            stage="retrieve_generate",
+            incident_id=int(state["incident_id"]) if str(state.get("incident_id", "")).isdigit() else None,
+            device_id=state.get("equipment_id"),
+            status="fallback",
+            message="RAG fallback activated",
+            payload={"error": str(e)},
+        )
 
     return {
         "rag_context": context_docs,

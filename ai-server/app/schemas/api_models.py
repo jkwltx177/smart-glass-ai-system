@@ -96,6 +96,82 @@ class MetricsResponse(BaseModel):
     timestamps: List[str]
     rmse_values: List[float]
 
+
+class AIOpsOverviewResponse(BaseModel):
+    generated_at: str
+    incident_count: int
+    completed_incident_count: int
+    failed_incident_count: int
+    prediction_count: int
+    avg_incident_latency_seconds: float
+    events_last_24h: int
+    critical_events_last_24h: int
+    fallback_events_last_24h: int
+    latest_prediction: Dict[str, Any]
+
+
+class AIOpsMetricsResponse(BaseModel):
+    model: str
+    timestamps: List[str]
+    failure_probability_values: List[float]
+    anomaly_score_values: List[float]
+    predicted_rul_minutes_values: List[float]
+    summary: Dict[str, Any]
+
+
+class AIOpsAlertItem(BaseModel):
+    type: str
+    severity: str
+    title: str
+    service: Optional[str] = None
+    stage: Optional[str] = None
+    incident_id: Optional[int] = None
+    device_id: Optional[str] = None
+    status: Optional[str] = None
+    message: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class AIOpsAlertsResponse(BaseModel):
+    items: List[AIOpsAlertItem]
+    total: int
+    severity_summary: Dict[str, int]
+    generated_at: str
+
+
+class AIOpsDriftResponse(BaseModel):
+    drift_detected: bool
+    events: List[Dict[str, Any]]
+    generated_at: str
+
+
+class RetrainRequest(BaseModel):
+    period_months: int = Field(default=3, ge=1, le=24)
+    model_target: str = Field(default="prediction", min_length=3, max_length=100)
+    trigger_reason: str = Field(default="manual", min_length=3, max_length=255)
+
+
+class RetrainResponse(BaseModel):
+    job_id: str
+    status: str
+    model_target: str
+    period_months: int
+    trigger_reason: str
+    requested_by: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class ModelRegistryItem(BaseModel):
+    name: str
+    version: str
+    prediction_count: int
+    last_used_at: Optional[str] = None
+    status: str
+
+
+class ModelRegistryResponse(BaseModel):
+    items: List[ModelRegistryItem]
+
 # --- F. Reports ---
 class ReportResponse(BaseModel):
     report_url: str

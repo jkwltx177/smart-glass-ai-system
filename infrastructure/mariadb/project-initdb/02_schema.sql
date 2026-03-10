@@ -212,7 +212,52 @@ CREATE TABLE predictions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =========================================================
--- 11. reports
+-- 11. aiops_events
+-- =========================================================
+CREATE TABLE aiops_events (
+    event_id           BIGINT        NOT NULL AUTO_INCREMENT,
+    event_type         VARCHAR(50)   NOT NULL,
+    severity           VARCHAR(20)   NOT NULL DEFAULT 'INFO',
+    service            VARCHAR(50)   NOT NULL,
+    stage              VARCHAR(50)   NULL,
+    incident_id        BIGINT        NULL,
+    device_id          VARCHAR(30)   NULL,
+    model_name         VARCHAR(100)  NULL,
+    status             VARCHAR(30)   NULL,
+    message            VARCHAR(255)  NULL,
+    payload_json       TEXT          NULL,
+    created_at         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (event_id),
+    KEY idx_aiops_events_type (event_type),
+    KEY idx_aiops_events_severity (severity),
+    KEY idx_aiops_events_service (service),
+    KEY idx_aiops_events_stage (stage),
+    KEY idx_aiops_events_incident (incident_id),
+    KEY idx_aiops_events_device (device_id),
+    KEY idx_aiops_events_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =========================================================
+-- 12. retrain_jobs
+-- =========================================================
+CREATE TABLE retrain_jobs (
+    job_id              BIGINT        NOT NULL AUTO_INCREMENT,
+    model_target        VARCHAR(100)  NOT NULL DEFAULT 'prediction',
+    period_months       INT           NOT NULL DEFAULT 3,
+    trigger_reason      VARCHAR(255)  NOT NULL DEFAULT 'manual',
+    requested_by        VARCHAR(100)  NULL,
+    status              VARCHAR(30)   NOT NULL DEFAULT 'queued',
+    payload_json        TEXT          NULL,
+    created_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at          DATETIME      NULL,
+    completed_at        DATETIME      NULL,
+    PRIMARY KEY (job_id),
+    KEY idx_retrain_jobs_status (status),
+    KEY idx_retrain_jobs_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =========================================================
+-- 13. reports
 -- =========================================================
 CREATE TABLE reports (
     report_id          BIGINT       NOT NULL AUTO_INCREMENT,
