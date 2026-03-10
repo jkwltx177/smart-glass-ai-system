@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.domain import Device, Incident, SensorTimeseries
 from app.schemas.api_models import TelemetryIngestRequest, TelemetryIngestResponse
+from app.services.aiops import emit_aiops_event
 from app.services.auth.token_verifier import verify_bearer_token
 
 
@@ -181,6 +182,46 @@ async def ingest_telemetry(
     db.add(row)
     db.commit()
     db.refresh(row)
+    observed_fields = [
+        name for name in [
+            "engine_rpm",
+            "coolant_temp",
+            "intake_air_temp",
+            "throttle_pos",
+            "fuel_trim",
+            "maf",
+        ]
+        if getattr(payload, name) is not None
+    ]
+    emit_aiops_event(
+        event_type="telemetry_recorded",
+        severity="INFO",
+        service="equipment",
+        stage="ingest",
+        incident_id=incident_id,
+        device_id=device_id,
+        status="recorded",
+        message="Telemetry row stored",
+        payload={
+            "ts_id": int(row.ts_id),
+            "observed_fields": observed_fields,
+            "failure_flag": bool(payload.failure),
+        },
+        db=db,
+    )
+    if len(observed_fields) <= 2:
+        emit_aiops_event(
+            event_type="telemetry_quality_low",
+            severity="MEDIUM",
+            service="equipment",
+            stage="ingest",
+            incident_id=incident_id,
+            device_id=device_id,
+            status="degraded",
+            message="Sparse telemetry payload detected",
+            payload={"observed_fields": observed_fields},
+            db=db,
+        )
 
     return TelemetryIngestResponse(
         status="ok",

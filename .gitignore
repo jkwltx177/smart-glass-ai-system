@@ -13,3 +13,10 @@ infrastructure/vector-db/*.pkl
 ai-server/.env
 ai-server/ai
 ai-server/storage/
+myenv/
+venv/
+.env
+__pycache__/
+.DS_Store
+ai-server/myenv/
+ai-server/venv/

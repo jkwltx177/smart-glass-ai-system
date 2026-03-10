@@ -8,6 +8,7 @@ from app.schemas.reporting import QualityReportResponse, QualityReportSampleResp
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.domain import Incident, Prediction
+from app.services.aiops import compute_aiops_overview
 from app.services.reporting.report_generator import (
     generate_fallback_report_bundle,
     generate_quality_report_bundle,
@@ -91,21 +92,17 @@ async def get_quality_report_sample():
 
 @router.post("/aiops", response_model=ReportResponse)
 async def generate_aiops_report(db: Session = Depends(get_db)):
-    total_incidents = db.query(Incident).count()
-    completed_incidents = db.query(Incident).filter(Incident.status == "COMPLETED").count()
-    failed_incidents = db.query(Incident).filter(Incident.status == "FAILED").count()
-    total_predictions = db.query(Prediction).count()
-    avg_failure_probability = db.query(func.avg(Prediction.failure_probability)).scalar()
+    overview = compute_aiops_overview(db)
     latest_incident = db.query(Incident).order_by(Incident.created_at.desc()).first()
 
     latest_id = int(latest_incident.incident_id) if latest_incident else 0
-    avg_failure = float(avg_failure_probability or 0.0)
 
     return ReportResponse(
         report_url=f"/api/v1/report/quality?incident_id={latest_id}" if latest_id else "/api/v1/report/quality",
         summary=(
-            f"incidents={total_incidents}, completed={completed_incidents}, "
-            f"failed={failed_incidents}, predictions={total_predictions}, "
-            f"avg_failure_probability={avg_failure:.4f}"
+            f"incidents={overview['incident_count']}, completed={overview['completed_incident_count']}, "
+            f"failed={overview['failed_incident_count']}, predictions={overview['prediction_count']}, "
+            f"events_last_24h={overview['events_last_24h']}, "
+            f"critical_events_last_24h={overview['critical_events_last_24h']}"
         ),
     )

@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.api.v1.endpoints import incidents, kb, rag, predictive, aiops, reporting, history, equipment, analyze, mobile
 import os
+from app.core.database import engine, Base
+from app.models.domain import AIOpsEvent, RetrainJob
 
 app = FastAPI(
     title="Smart Glass AI System API",
@@ -36,6 +38,11 @@ app.include_router(reporting.router, prefix="/api/v1/report", tags=["F. Reportin
 app.include_router(history.router, prefix="/api/v1/history", tags=["G. History"])
 app.include_router(equipment.router, prefix="/api/v1/equipment", tags=["H. Equipment Telemetry"])
 app.include_router(mobile.router, prefix="/api/v1/mobile", tags=["I. Mobile Bridge"])
+
+
+@app.on_event("startup")
+def ensure_aiops_tables() -> None:
+    Base.metadata.create_all(bind=engine, tables=[AIOpsEvent.__table__, RetrainJob.__table__])
 
 @app.get("/health")
 def health_check():

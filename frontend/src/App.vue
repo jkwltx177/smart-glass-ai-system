@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
+import AnalyticsView from './AnalyticsView.vue'
 import HistoryView from './HistoryView.vue'
 import LoginView from './LoginView.vue'
 import MobileCaptureView from './MobileCaptureView.vue'
@@ -20,7 +21,7 @@ type LoginResponse = {
   expiresInSeconds: number
 }
 
-type ViewType = 'login' | 'menu' | 'rag' | 'history'
+type ViewType = 'login' | 'menu' | 'rag' | 'history' | 'analytics'
 type PredictiveSummary = {
   failure_probability: number
   predicted_rul_minutes: number
@@ -219,7 +220,7 @@ type MenuTarget = 'dashboard' | 'rag' | 'history' | 'analytics' | 'settings'
 const navigateTo = (view: MenuTarget | Exclude<ViewType, 'login'>) => {
   ragMessage.value = ''
   predictiveSummary.value = null
-  if (view === 'rag' || view === 'history') {
+  if (view === 'rag' || view === 'history' || view === 'analytics') {
     currentView.value = view
     nextTick(() => {
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
@@ -344,6 +345,11 @@ const sendRagRequest = async (files: { imageFile: File | null; audioFile: File |
     @mobile-result="onMobileResult"
     @back="navigateTo('menu')"
     @logout="onLogout"
+  />
+
+  <AnalyticsView
+    v-else-if="currentView === 'analytics'"
+    @back="navigateTo('menu')"
   />
 
   <HistoryView v-else @back="navigateTo('menu')" @logout="onLogout" />

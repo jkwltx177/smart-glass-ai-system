@@ -1,4 +1,5 @@
 from datetime import datetime
+from time import perf_counter
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +15,7 @@ from app.schemas.api_models import (
     DiagnosticResponse,
 )
 from app.services.auth.token_verifier import verify_bearer_token
+from app.services.aiops import emit_aiops_event
 from app.services.pipeline.workflow import app_pipeline
 
 
@@ -100,6 +102,7 @@ async def analyze_diagnostic(
     로그인 토큰을 검증하고 STT/Vision/예측/RAG를 하나의 API로 실행한다.
     실패가 발생해도 fallback으로 전체 파이프라인이 끊기지 않도록 처리한다.
     """
+    started_at = perf_counter()
     device = db.query(Device).filter(Device.device_id == equipment_id).first()
     if not device:
         raise HTTPException(status_code=404, detail=f"Device {equipment_id} not found")
@@ -118,6 +121,23 @@ async def analyze_diagnostic(
     db.add(incident)
     db.commit()
     db.refresh(incident)
+    emit_aiops_event(
+        event_type="diagnostic_requested",
+        severity="INFO",
+        service="analyze",
+        stage="request",
+        incident_id=int(incident.incident_id),
+        device_id=equipment_id,
+        status="accepted",
+        message="Integrated diagnostic requested",
+        payload={
+            "site": site,
+            "line": line,
+            "device_type": device_type,
+            "rag_top_k": rag_top_k,
+        },
+        db=db,
+    )
 
     fallbacks: List[str] = []
     audio_bytes: Optional[bytes] = None
@@ -169,11 +189,25 @@ async def analyze_diagnostic(
     try:
         result = app_pipeline.invoke(initial_state)
         incident.status = "COMPLETED"
+        incident.ended_at = datetime.utcnow()
     except Exception as e:
         incident.status = "FAILED"
+        incident.ended_at = datetime.utcnow()
         db.commit()
         fallback_message = f"pipeline_runtime_error:{str(e)}"
         fallbacks.append(fallback_message)
+        emit_aiops_event(
+            event_type="pipeline_failed",
+            severity="HIGH",
+            service="analyze",
+            stage="pipeline",
+            incident_id=int(incident.incident_id),
+            device_id=equipment_id,
+            status="failed",
+            message="Integrated pipeline failed",
+            payload={"error": str(e), "fallback_count": len(fallbacks)},
+            db=db,
+        )
         result = {
             "transcription": "음성 분석 결과 없음",
             "vision_analysis": "이미지 분석 결과 없음",
@@ -214,6 +248,42 @@ async def analyze_diagnostic(
     )
     incident.updated_at = datetime.utcnow()
     db.commit()
+    latency_ms = round((perf_counter() - started_at) * 1000.0, 2)
+    severity = "HIGH" if pipeline_fallbacks else "INFO"
+    emit_aiops_event(
+        event_type="pipeline_completed" if incident.status == "COMPLETED" else "pipeline_failed",
+        severity=severity,
+        service="analyze",
+        stage="response",
+        incident_id=int(incident.incident_id),
+        device_id=equipment_id,
+        model_name=str(result.get("prediction_model", "unknown")),
+        status=str(incident.status).lower(),
+        message="Integrated diagnostic finished",
+        payload={
+            "latency_ms": latency_ms,
+            "fallback_count": len(pipeline_fallbacks),
+            "failure_probability": fp,
+            "predicted_rul_minutes": rul,
+            "anomaly_score": anomaly,
+            "risk_level": str(action_plan.get("risk_level", result.get("risk_level", "MEDIUM"))),
+            "escalation_required": bool(action_plan.get("escalation_required", False)),
+        },
+        db=db,
+    )
+    if pipeline_fallbacks:
+        emit_aiops_event(
+            event_type="pipeline_fallback",
+            severity="MEDIUM",
+            service="analyze",
+            stage="response",
+            incident_id=int(incident.incident_id),
+            device_id=equipment_id,
+            status="degraded",
+            message="Diagnostic completed with fallbacks",
+            payload={"fallbacks": pipeline_fallbacks},
+            db=db,
+        )
 
     return DiagnosticResponse(
         status="success",

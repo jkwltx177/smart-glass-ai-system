@@ -95,3 +95,35 @@ class SensorTimeseries(Base):
     fuel_trim = Column(Numeric(5, 2))
     maf = Column(Numeric(6, 2))
     failure = Column(Boolean, default=False, nullable=False)
+
+
+class AIOpsEvent(Base):
+    __tablename__ = "aiops_events"
+
+    event_id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    event_type = Column(String(50), index=True, nullable=False)
+    severity = Column(String(20), index=True, nullable=False, default="INFO")
+    service = Column(String(50), index=True, nullable=False)
+    stage = Column(String(50), index=True, nullable=True)
+    incident_id = Column(BigInteger, index=True, nullable=True)
+    device_id = Column(String(30), index=True, nullable=True)
+    model_name = Column(String(100), nullable=True)
+    status = Column(String(30), index=True, nullable=True)
+    message = Column(String(255), nullable=True)
+    payload_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+
+
+class RetrainJob(Base):
+    __tablename__ = "retrain_jobs"
+
+    job_id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    model_target = Column(String(100), nullable=False, default="prediction")
+    period_months = Column(Integer, nullable=False, default=3)
+    trigger_reason = Column(String(255), nullable=False, default="manual")
+    requested_by = Column(String(100), nullable=True)
+    status = Column(String(30), index=True, nullable=False, default="queued")
+    payload_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
