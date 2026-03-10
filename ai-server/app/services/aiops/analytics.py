@@ -383,3 +383,41 @@ def queue_retrain_job(
         "requested_by": job.requested_by,
         "created_at": job.created_at.isoformat() if job.created_at else None,
     }
+
+
+def list_retrain_jobs(
+    db: Session,
+    *,
+    status: Optional[str] = None,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    query = db.query(RetrainJob)
+    if status:
+        query = query.filter(RetrainJob.status == status.lower())
+
+    rows = query.order_by(RetrainJob.created_at.desc()).limit(max(1, min(int(limit), 200))).all()
+    items: List[Dict[str, Any]] = []
+    for row in rows:
+        items.append(
+            {
+                "job_id": f"retrain_job_{int(row.job_id)}",
+                "model_target": row.model_target,
+                "period_months": int(row.period_months or 0),
+                "trigger_reason": row.trigger_reason,
+                "requested_by": row.requested_by,
+                "status": row.status,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "started_at": row.started_at.isoformat() if row.started_at else None,
+                "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+                "payload": _parse_payload(row.payload_json),
+            }
+        )
+
+    summary_rows = db.query(RetrainJob.status, func.count(RetrainJob.job_id)).group_by(RetrainJob.status).all()
+    summary = {str(row[0] or "unknown"): int(row[1] or 0) for row in summary_rows}
+    return {
+        "items": items,
+        "total": len(items),
+        "status_summary": summary,
+        "generated_at": datetime.utcnow().isoformat(),
+    }

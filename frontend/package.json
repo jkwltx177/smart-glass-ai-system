@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host",
     "dev:https": "VITE_DEV_HTTPS=true vite --host",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
