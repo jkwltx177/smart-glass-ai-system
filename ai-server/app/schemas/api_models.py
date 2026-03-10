@@ -87,6 +87,8 @@ class PredictionRequest(BaseModel):
     incident_id: str
 
 class PredictionResponse(BaseModel):
+    prediction_id: int
+    model_name: str
     failure_probability: float
     predicted_rul: float
     model_version: str

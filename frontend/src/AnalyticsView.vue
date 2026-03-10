@@ -62,32 +62,40 @@ type AlertsSummary = {
   INFO?: number
 }
 
+type AIOpsEventItem = {
+  event_id: number
+  event_type: string
+  severity?: string
+  service?: string | null
+  stage?: string | null
+  incident_id?: number | null
+  device_id?: string | null
+  model_name?: string | null
+  status?: string | null
+  message?: string | null
+  created_at?: string | null
+}
+
 const emit = defineEmits<{ back: [] }>()
 
 const ACCESS_TOKEN_STORAGE_KEY = 'accessToken'
 const TOKEN_TYPE_STORAGE_KEY = 'tokenType'
-const AUTO_REFRESH_SECONDS = 30
+const AUTO_REFRESH_SECONDS = 5
 
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref('')
 const pollStamp = ref('')
-const controlBusy = ref(false)
 const releaseBusy = ref(false)
-const pdfBusy = ref(false)
-const controlMessage = ref('')
-const activeTab = ref<'drift' | 'retrain' | 'release'>('drift')
 const selectedCandidateJobId = ref('')
+const actionMessage = ref('')
 
 const overview = ref<Overview | null>(null)
 const drift = ref<DriftPayload>({})
 const alertsSummary = ref<AlertsSummary>({})
 const retrainJobs = ref<RetrainJobItem[]>([])
 const deployment = ref<DeploymentState>({ status: 'ok', current: null, previous: null, history: [] })
-
-const retrainPeriodMonths = ref(3)
-const retrainTriggerReason = ref('manual')
-const retrainCycleLimit = ref(3)
+const liveEvents = ref<AIOpsEventItem[]>([])
 
 let refreshTimer: number | null = null
 
@@ -116,8 +124,8 @@ const toPct = (value: unknown, digits = 1) => {
 
 const statusClass = (status?: string | null) => {
   const normalized = String(status || '').toLowerCase()
-  if (normalized === 'failed' || normalized === 'critical') return 'bad'
-  if (normalized === 'queued' || normalized === 'running' || normalized === 'medium') return 'warn'
+  if (normalized === 'failed' || normalized === 'critical' || normalized === 'blocked') return 'bad'
+  if (normalized === 'queued' || normalized === 'running' || normalized === 'medium' || normalized === 'pending') return 'warn'
   return 'ok'
 }
 
@@ -140,27 +148,19 @@ const driftEvents = computed(() => (Array.isArray(drift.value?.events) ? drift.v
 const gateInfo = (job: RetrainJobItem) => {
   const payload = (job.payload || {}) as Record<string, unknown>
   const metrics = payload.metrics as Record<string, unknown> | undefined
-  const passed =
-    typeof payload.gate_passed === 'boolean'
-      ? payload.gate_passed
-      : String(job.status || '').toLowerCase() === 'completed'
-        ? true
-        : null
-
+  const passed = typeof payload.gate_passed === 'boolean' ? payload.gate_passed : String(job.status || '').toLowerCase() === 'completed'
   const gateValue =
     typeof payload.gate_value === 'number'
       ? payload.gate_value
       : typeof metrics?.valid_rmse_failure === 'number'
         ? Number(metrics.valid_rmse_failure)
         : null
-
   const gateThreshold =
     typeof payload.gate_threshold === 'number'
       ? payload.gate_threshold
       : typeof metrics?.rmse_threshold === 'number'
         ? Number(metrics.rmse_threshold)
         : null
-
   const deployStatus = String(payload.deployment_status || '').toLowerCase()
   const reason = String(payload.reason || payload.error || '').trim()
   return { passed, gateValue, gateThreshold, deployStatus, reason }
@@ -175,9 +175,10 @@ const alertHighCount = computed(() => Number(alertsSummary.value.HIGH || 0) + Nu
 const alertMediumCount = computed(() => Number(alertsSummary.value.MEDIUM || 0))
 const alertLowCount = computed(() => Number(alertsSummary.value.LOW || 0) + Number(alertsSummary.value.INFO || 0))
 
+const latestEvent = computed(() => liveEvents.value[0] || null)
 const deployCurrent = computed(() => (deployment.value.current && typeof deployment.value.current === 'object' ? deployment.value.current : null))
 const deployPrevious = computed(() => (deployment.value.previous && typeof deployment.value.previous === 'object' ? deployment.value.previous : null))
-const deploymentHistory = computed(() => (Array.isArray(deployment.value.history) ? deployment.value.history.slice(0, 8) : []))
+const deploymentHistory = computed(() => (Array.isArray(deployment.value.history) ? deployment.value.history.slice(0, 6) : []))
 
 const candidateJobs = computed(() => {
   return retrainJobs.value.filter((job) => {
@@ -190,67 +191,42 @@ const candidateJobs = computed(() => {
   })
 })
 
-const stageCards = computed(() => {
-  const current = deployCurrent.value
+const automationStages = computed(() => {
   const hasCandidate = candidateJobs.value.length > 0
   return [
-    { label: 'Drift Detection', state: driftDetected.value ? 'active' : 'idle', text: driftDetected.value ? '감지됨' : '정상' },
-    { label: 'Retrain Queue', state: queuedJobCount.value + runningJobCount.value > 0 ? 'active' : 'idle', text: `${queuedJobCount.value} queued / ${runningJobCount.value} running` },
-    { label: 'Candidate Ready', state: hasCandidate ? 'active' : 'idle', text: hasCandidate ? `${candidateJobs.value.length}개 준비` : '없음' },
-    { label: 'Production Deploy', state: current ? 'active' : 'idle', text: current ? String(current.model_version || '-') : '미배포' },
-    { label: 'Rollback Safety', state: deployPrevious.value ? 'active' : 'idle', text: deployPrevious.value ? '이전 버전 보관' : '이전 버전 없음' },
+    { label: '1. Predict Monitor', state: latestEvent.value ? 'active' : 'idle', text: latestEvent.value ? String(latestEvent.value.event_type || 'active') : 'waiting' },
+    { label: '2. Drift Detection', state: driftDetected.value ? 'active' : 'idle', text: driftDetected.value ? 'drift detected' : 'normal' },
+    { label: '3. Auto Retrain', state: queuedJobCount.value + runningJobCount.value > 0 ? 'active' : 'idle', text: queuedJobCount.value + runningJobCount.value > 0 ? `${queuedJobCount.value} queued / ${runningJobCount.value} running` : 'standby' },
+    { label: '4. Candidate Ready', state: hasCandidate ? 'active' : 'idle', text: hasCandidate ? `${candidateJobs.value.length} ready` : 'not ready' },
+    { label: '5. Manual Deploy', state: deployCurrent.value ? 'active' : 'idle', text: deployCurrent.value ? String(deployCurrent.value.model_version || 'active') : 'awaiting approval' },
   ]
 })
 
-const driftCards = computed(() => {
-  return driftEvents.value.slice(0, 8).map((evt) => {
-    const category = String(evt.category || 'unknown')
-    const metric = String(evt.metric || '-')
-    if (category === 'data_drift') {
-      return {
-        title: 'Data Shift',
-        subtitle: metric,
-        primary: `변화율 ${toPct(evt.delta_ratio)}`,
-        secondary: `최근 ${Number(evt.recent_mean || 0).toFixed(2)} / 기준 ${Number(evt.baseline_mean || 0).toFixed(2)}`,
-        severity: String(evt.severity || 'MEDIUM'),
-      }
-    }
-    if (category === 'performance_drift') {
-      return {
-        title: 'RMSE Drift',
-        subtitle: 'failure_probability',
-        primary: `RMSE ${toPct(evt.recent_rmse, 2)}`,
-        secondary: `기준 ${toPct(evt.baseline_rmse, 2)} · 임계 ${toPct(evt.threshold, 2)}`,
-        severity: String(evt.severity || 'MEDIUM'),
-      }
-    }
-    if (category === 'model_drift') {
-      return {
-        title: 'Prediction Shift',
-        subtitle: metric,
-        primary: `실패확률 ${toPct(evt.recent_failure_probability)} / ${toPct(evt.baseline_failure_probability)}`,
-        secondary: '예측 분포 이동 감지',
-        severity: String(evt.severity || 'MEDIUM'),
-      }
-    }
-    if (category === 'service_drift') {
-      return {
-        title: 'Service Drift',
-        subtitle: 'fallback_rate',
-        primary: `24h ${Number(evt.recent_24h_count || 0)}건`,
-        secondary: `기준 일평균 ${Number(evt.baseline_daily_count || 0).toFixed(2)}건`,
-        severity: String(evt.severity || 'MEDIUM'),
-      }
-    }
-    return {
-      title: 'Drift Event',
-      subtitle: `${category} · ${metric}`,
-      primary: '이상 패턴 감지',
-      secondary: '상세는 PDF 리포트 참고',
-      severity: String(evt.severity || 'LOW'),
-    }
-  })
+const flowHeadline = computed(() => {
+  if (candidateJobs.value.length > 0) return '후보 모델 준비 완료'
+  if (runningJobCount.value > 0) return '자동 재학습 실행 중'
+  if (queuedJobCount.value > 0) return '자동 재학습 대기 중'
+  if (driftDetected.value) return '드리프트 감지'
+  return '실시간 감시 정상'
 })
+
+const automationSignal = computed(() => {
+  const items = [
+    { label: '현재 단계', value: automationStages.value.find((item) => item.state === 'active')?.label || '1. Predict Monitor' },
+    { label: '마지막 이벤트', value: String(latestEvent.value?.event_type || '-') },
+    { label: '마지막 동기화', value: pollStamp.value || '-' },
+  ]
+  return items
+})
+
+const driftSummary = (evt: DriftEvent) => {
+  const category = String(evt.category || 'unknown')
+  if (category === 'data_drift') return `변화율 ${toPct(evt.delta_ratio)} / 기준 평균 ${Number(evt.baseline_mean || 0).toFixed(2)}`
+  if (category === 'performance_drift') return `RMSE ${toPct(evt.recent_rmse, 2)} / 임계 ${toPct(evt.threshold, 2)}`
+  if (category === 'model_drift') return `실패확률 ${toPct(evt.recent_failure_probability)} / 기준 ${toPct(evt.baseline_failure_probability)}`
+  if (category === 'service_drift') return `24h ${Number(evt.recent_24h_count || 0)}건 / 일평균 ${Number(evt.baseline_daily_count || 0).toFixed(2)}건`
+  return '이상 패턴 감지'
+}
 
 const apiGet = async (url: string, useAuth = false) => {
   const headers: Record<string, string> = {}
@@ -258,16 +234,6 @@ const apiGet = async (url: string, useAuth = false) => {
   const res = await fetch(url, { headers })
   if (!res.ok) throw new Error(`${url} 요청 실패 (${res.status})`)
   return res.json()
-}
-
-const runDriftCycle = async (silent = true) => {
-  if (!hasAuthToken()) return
-  try {
-    const res = await fetch('/api/aiops/runtime/drift-cycle', { method: 'POST', headers: authHeaders() })
-    if (!silent && !res.ok) throw new Error(`드리프트 사이클 실행 실패 (${res.status})`)
-  } catch (err) {
-    if (!silent) controlMessage.value = err instanceof Error ? err.message : '드리프트 사이클 실행 실패'
-  }
 }
 
 const refreshRetrainJobs = async () => {
@@ -293,14 +259,21 @@ const refreshDeployment = async () => {
   }
 }
 
+const refreshLiveEvents = async () => {
+  if (!hasAuthToken()) {
+    liveEvents.value = []
+    return
+  }
+  const data = await apiGet('/api/aiops/events/recent?limit=12', true)
+  liveEvents.value = Array.isArray(data?.items) ? data.items : []
+}
+
 const refreshAll = async (silent = false) => {
   if (silent) refreshing.value = true
   else loading.value = true
   error.value = ''
 
   try {
-    await runDriftCycle(true)
-
     const [overviewRes, driftRes, alertsRes] = await Promise.all([
       fetch('/api/aiops/overview'),
       fetch('/api/aiops/drift'),
@@ -315,12 +288,10 @@ const refreshAll = async (silent = false) => {
     const alertsData = await alertsRes.json()
     alertsSummary.value = alertsData?.severity_summary && typeof alertsData.severity_summary === 'object' ? alertsData.severity_summary : {}
 
-    await Promise.all([refreshRetrainJobs(), refreshDeployment()])
+    await Promise.all([refreshRetrainJobs(), refreshDeployment(), refreshLiveEvents()])
     if (!selectedCandidateJobId.value && candidateJobs.value.length > 0) {
       const firstCandidate = candidateJobs.value[0]
-      if (firstCandidate) {
-        selectedCandidateJobId.value = String(firstCandidate.job_id)
-      }
+      if (firstCandidate) selectedCandidateJobId.value = String(firstCandidate.job_id)
     }
     pollStamp.value = new Date().toLocaleTimeString()
   } catch (err) {
@@ -331,122 +302,25 @@ const refreshAll = async (silent = false) => {
   }
 }
 
-const requestRetrain = async () => {
-  controlBusy.value = true
-  controlMessage.value = ''
-  try {
-    const payload = {
-      period_months: Math.max(1, Math.min(24, Number(retrainPeriodMonths.value || 1))),
-      model_target: 'prediction',
-      trigger_reason: String(retrainTriggerReason.value || 'manual').slice(0, 255),
-    }
-    const res = await fetch('/api/aiops/retrain', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) throw new Error(`재학습 요청 실패 (${res.status})`)
-    const data = await res.json()
-    controlMessage.value = `재학습 요청 등록: ${String(data?.job_id || '-')}`
-    await refreshAll(true)
-  } catch (err) {
-    controlMessage.value = err instanceof Error ? err.message : '재학습 요청 실패'
-  } finally {
-    controlBusy.value = false
-  }
-}
-
-const runRetrainCycle = async () => {
-  controlBusy.value = true
-  controlMessage.value = ''
-  try {
-    const limit = Math.max(1, Math.min(10, Number(retrainCycleLimit.value || 1)))
-    const res = await fetch(`/api/aiops/runtime/retrain-cycle?limit=${limit}`, {
-      method: 'POST',
-      headers: authHeaders(),
-    })
-    if (!res.ok) throw new Error(`재학습 사이클 실행 실패 (${res.status})`)
-    const data = await res.json()
-    controlMessage.value = `사이클 완료: ${Number(data?.processed_jobs || 0)}건`
-    await refreshAll(true)
-  } catch (err) {
-    controlMessage.value = err instanceof Error ? err.message : '재학습 사이클 실행 실패'
-  } finally {
-    controlBusy.value = false
-  }
-}
-
 const promoteCandidate = async () => {
   if (!selectedCandidateJobId.value) {
-    controlMessage.value = '배포할 후보 모델을 선택하세요.'
+    actionMessage.value = '배포할 후보 모델이 없습니다.'
     return
   }
   releaseBusy.value = true
-  controlMessage.value = ''
+  actionMessage.value = ''
   try {
     const res = await fetch(`/api/aiops/deployment/promote?job_id=${encodeURIComponent(selectedCandidateJobId.value)}`, {
       method: 'POST',
       headers: authHeaders(),
     })
     if (!res.ok) throw new Error(`배포 실패 (${res.status})`)
-    controlMessage.value = '후보 모델을 프로덕션으로 배포했습니다.'
+    actionMessage.value = '후보 모델을 프로덕션에 배포했습니다.'
     await refreshAll(true)
   } catch (err) {
-    controlMessage.value = err instanceof Error ? err.message : '배포 실패'
+    actionMessage.value = err instanceof Error ? err.message : '배포 실패'
   } finally {
     releaseBusy.value = false
-  }
-}
-
-const rollbackDeployment = async () => {
-  releaseBusy.value = true
-  controlMessage.value = ''
-  try {
-    const res = await fetch('/api/aiops/deployment/rollback', {
-      method: 'POST',
-      headers: authHeaders(),
-    })
-    if (!res.ok) throw new Error(`롤백 실패 (${res.status})`)
-    controlMessage.value = '이전 모델로 롤백을 완료했습니다.'
-    await refreshAll(true)
-  } catch (err) {
-    controlMessage.value = err instanceof Error ? err.message : '롤백 실패'
-  } finally {
-    releaseBusy.value = false
-  }
-}
-
-const runDriftCycleNow = async () => {
-  controlBusy.value = true
-  controlMessage.value = ''
-  try {
-    await runDriftCycle(false)
-    controlMessage.value = '드리프트 점검 사이클을 실행했습니다.'
-    await refreshAll(true)
-  } finally {
-    controlBusy.value = false
-  }
-}
-
-const generatePdfReport = async () => {
-  if (!hasAuthToken()) {
-    controlMessage.value = 'PDF 출력은 로그인 후 가능합니다.'
-    return
-  }
-  pdfBusy.value = true
-  controlMessage.value = ''
-  try {
-    const res = await fetch('/api/aiops/report', { method: 'POST', headers: authHeaders() })
-    if (!res.ok) throw new Error(`PDF 생성 실패 (${res.status})`)
-    const data = await res.json()
-    const reportUrl = String(data?.report_url || '').trim()
-    if (!reportUrl) throw new Error('PDF URL이 비어 있습니다.')
-    window.open(reportUrl, '_blank')
-    controlMessage.value = 'AIOps PDF 리포트를 생성했습니다.'
-  } catch (err) {
-    controlMessage.value = err instanceof Error ? err.message : 'PDF 생성 실패'
-  } finally {
-    pdfBusy.value = false
   }
 }
 
@@ -471,20 +345,19 @@ onUnmounted(() => {
       <nav class="utility-bar">
         <button class="nav-action-btn" @click="emit('back')">Back to Dashboard</button>
         <div class="system-meta">
-          <span class="connection-status">AIOps Release Console</span>
-          <button class="report-btn" :disabled="pdfBusy" @click="generatePdfReport">{{ pdfBusy ? 'Generating...' : 'Export PDF' }}</button>
+          <span class="connection-status">AIOps Automation Monitor</span>
           <button class="report-btn" :disabled="refreshing" @click="refreshAll(true)">{{ refreshing ? 'Sync...' : 'Refresh' }}</button>
         </div>
       </nav>
 
       <div class="analysis-module">
         <header class="module-header">
-          <div class="indicator-tag">AIOps Runtime v3.0</div>
-          <h1 class="module-title">Drift to Deploy Pipeline</h1>
-          <p class="module-description">드리프트 감지 후 재학습 후보를 만들고, 배포/롤백을 운영자가 통제하는 릴리즈 흐름입니다.</p>
+          <div class="indicator-tag">AIOps Runtime Live</div>
+          <h1 class="module-title">Predictive AI Automation Flow</h1>
+          <p class="module-description">실시간 예측 결과를 감시하고, 드리프트 감지 이후 자동 재학습과 후보 생성까지 이어지는 흐름만 남긴 운영 모니터입니다.</p>
           <div class="hero-meta">
             <span>모델 {{ activeModelLabel }}</span>
-            <span :class="driftDetected ? 'bad' : 'ok'">{{ driftDetected ? '드리프트 감지' : '정상' }}</span>
+            <span :class="driftDetected ? 'bad' : 'ok'">{{ driftDetected ? '드리프트 감지' : '모니터링 정상' }}</span>
             <span>동기화 {{ pollStamp || '-' }}</span>
           </div>
         </header>
@@ -494,9 +367,49 @@ onUnmounted(() => {
 
         <template v-else>
           <section class="pipeline-strip">
-            <article v-for="item in stageCards" :key="item.label" class="pipeline-item" :class="item.state === 'active' ? 'active' : ''">
+            <article v-for="item in automationStages" :key="item.label" class="pipeline-item" :class="item.state === 'active' ? 'active' : ''">
               <span>{{ item.label }}</span>
               <strong>{{ item.text }}</strong>
+            </article>
+          </section>
+
+          <section class="spotlight-card">
+            <div>
+              <p class="spotlight-label">Automation Status</p>
+              <h2 class="spotlight-title">{{ flowHeadline }}</h2>
+            </div>
+            <div class="spotlight-meta">
+              <div v-for="item in automationSignal" :key="item.label" class="spotlight-pill">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="content-grid">
+            <article class="content-card">
+              <h2>Live Runtime</h2>
+              <div class="state-line"><span>Refresh Interval</span><strong>5s</strong></div>
+              <div class="state-line"><span>Latest Event</span><strong>{{ String(latestEvent?.event_type || '-') }}</strong></div>
+              <div class="state-line"><span>Latest Status</span><strong :class="statusClass(String(latestEvent?.status || 'ok'))">{{ String(latestEvent?.status || '-') }}</strong></div>
+              <div class="state-line"><span>Generated At</span><strong>{{ formatDate(latestEvent?.created_at) }}</strong></div>
+            </article>
+
+            <article class="content-card wide">
+              <h2>실시간 AIOps Feed</h2>
+              <div v-if="liveEvents.length === 0" class="empty">표시할 이벤트가 없습니다.</div>
+              <ul v-else class="job-list">
+                <li v-for="item in liveEvents" :key="item.event_id" class="job-item">
+                  <div class="job-row"><strong>{{ item.event_type }}</strong><span :class="severityClass(item.severity)">{{ String(item.severity || 'INFO') }}</span><span>{{ formatDate(item.created_at) }}</span></div>
+                  <div class="job-row sub"><span>service: {{ String(item.service || '-') }}</span><span>stage: {{ String(item.stage || '-') }}</span><span :class="statusClass(item.status)">{{ String(item.status || '-') }}</span></div>
+                  <div class="job-row sub">
+                    <span v-if="item.incident_id !== null && item.incident_id !== undefined">incident: {{ item.incident_id }}</span>
+                    <span v-if="item.device_id">device: {{ String(item.device_id) }}</span>
+                    <span>{{ String(item.model_name || '-') }}</span>
+                  </div>
+                  <p v-if="item.message" class="drift-secondary">{{ item.message }}</p>
+                </li>
+              </ul>
             </article>
           </section>
 
@@ -512,9 +425,9 @@ onUnmounted(() => {
               <small>fallback {{ Number(overview?.fallback_events_last_24h || 0) }}</small>
             </article>
             <article class="kpi-card">
-              <span>재학습 큐</span>
-              <strong>{{ queuedJobCount }} / {{ runningJobCount }}</strong>
-              <small>queued / running</small>
+              <span>재학습 상태</span>
+              <strong>{{ queuedJobCount }} / {{ runningJobCount }} / {{ completedJobCount }}</strong>
+              <small>queued / running / completed</small>
             </article>
             <article class="kpi-card">
               <span>Alert 수준</span>
@@ -523,58 +436,27 @@ onUnmounted(() => {
             </article>
           </section>
 
-          <section class="tab-switcher">
-            <button :class="['tab-btn', activeTab === 'drift' ? 'active' : '']" @click="activeTab = 'drift'">모델 드리프트</button>
-            <button :class="['tab-btn', activeTab === 'retrain' ? 'active' : '']" @click="activeTab = 'retrain'">재학습</button>
-            <button :class="['tab-btn', activeTab === 'release' ? 'active' : '']" @click="activeTab = 'release'">배포 · 롤백</button>
-          </section>
-
-          <section v-if="activeTab === 'drift'" class="content-grid">
+          <section class="automation-grid">
             <article class="content-card">
-              <h2>Drift 상태</h2>
+              <h2>Drift Summary</h2>
               <div class="state-line"><span>감지 여부</span><strong :class="driftDetected ? 'bad' : 'ok'">{{ driftDetected ? '감지됨' : '정상' }}</strong></div>
-              <div class="state-line"><span>재학습 권고</span><strong :class="retrainRecommended ? 'warn' : 'ok'">{{ retrainRecommended ? '권고됨' : '없음' }}</strong></div>
-              <div class="state-line"><span>이벤트 수</span><strong>{{ driftEvents.length }}건</strong></div>
+              <div class="state-line"><span>자동 재학습 권고</span><strong :class="retrainRecommended ? 'warn' : 'ok'">{{ retrainRecommended ? '활성' : '대기' }}</strong></div>
+              <div class="state-line"><span>드리프트 이벤트</span><strong>{{ driftEvents.length }}건</strong></div>
               <div class="state-line"><span>생성 시각</span><strong>{{ formatDate(drift.generated_at || null) }}</strong></div>
-              <div class="button-row"><button :disabled="controlBusy || !hasAuthToken()" @click="runDriftCycleNow">드리프트 점검 실행</button></div>
+              <div class="event-chips">
+                <span v-for="(evt, idx) in driftEvents.slice(0, 4)" :key="`${evt.category}-${evt.metric}-${idx}`" class="event-chip" :class="severityClass(evt.severity)">
+                  {{ String(evt.category || 'unknown') }} · {{ String(evt.metric || '-') }}
+                </span>
+              </div>
             </article>
 
             <article class="content-card wide">
-              <h2>Drift 이벤트 요약</h2>
-              <div v-if="driftCards.length === 0" class="empty">감지된 이벤트가 없습니다.</div>
-              <div v-else class="drift-card-grid">
-                <div v-for="(card, idx) in driftCards" :key="`${card.title}-${idx}`" class="drift-card">
-                  <div class="drift-head"><strong>{{ card.title }}</strong><span :class="severityClass(card.severity)">{{ card.severity }}</span></div>
-                  <p class="drift-sub">{{ card.subtitle }}</p>
-                  <p class="drift-primary">{{ card.primary }}</p>
-                  <p class="drift-secondary">{{ card.secondary }}</p>
-                </div>
-              </div>
-            </article>
-          </section>
-
-          <section v-else-if="activeTab === 'retrain'" class="content-grid">
-            <article class="content-card">
-              <h2>재학습 제어</h2>
-              <div class="control-grid">
-                <label><span>Period (months)</span><input v-model.number="retrainPeriodMonths" type="number" min="1" max="24" /></label>
-                <label><span>Cycle Limit</span><input v-model.number="retrainCycleLimit" type="number" min="1" max="10" /></label>
-                <label class="wide-input"><span>Trigger Reason</span><input v-model="retrainTriggerReason" type="text" maxlength="255" /></label>
-              </div>
-              <div class="button-row">
-                <button class="primary" :disabled="controlBusy" @click="requestRetrain">재학습 요청</button>
-                <button :disabled="controlBusy" @click="runRetrainCycle">사이클 실행</button>
-              </div>
-              <p v-if="controlMessage" class="control-message">{{ controlMessage }}</p>
-            </article>
-
-            <article class="content-card wide">
-              <h2>최근 재학습 작업</h2>
-              <div v-if="retrainJobs.length === 0" class="empty">표시할 작업이 없습니다.</div>
+              <h2>Auto Retrain Jobs</h2>
+              <div v-if="retrainJobs.length === 0" class="empty">자동 생성된 작업이 없습니다.</div>
               <ul v-else class="job-list">
-                <li v-for="job in retrainJobs.slice(0, 10)" :key="job.job_id" class="job-item">
+                <li v-for="job in retrainJobs.slice(0, 6)" :key="job.job_id" class="job-item">
                   <div class="job-row"><strong>{{ job.job_id }}</strong><span :class="statusClass(job.status)">{{ job.status }}</span><span>{{ formatDate(job.created_at) }}</span></div>
-                  <div class="job-row sub"><span>trigger: {{ String(job.trigger_reason || '-') }}</span><span>period: {{ Number(job.period_months || 0) }}m</span><span :class="statusClass(gateInfo(job).deployStatus || 'idle')">deploy: {{ gateInfo(job).deployStatus || 'pending' }}</span></div>
+                  <div class="job-row sub"><span>trigger: {{ String(job.trigger_reason || '-') }}</span><span>period: {{ Number(job.period_months || 0) }}m</span><span :class="statusClass(gateInfo(job).deployStatus || 'pending')">deploy: {{ gateInfo(job).deployStatus || 'pending' }}</span></div>
                   <div class="job-row sub"><span>gate: <strong :class="gateInfo(job).passed === false ? 'bad' : gateInfo(job).passed === true ? 'ok' : 'warn'">{{ gateInfo(job).passed === false ? 'blocked' : gateInfo(job).passed === true ? 'passed' : 'pending' }}</strong></span><span>RMSE: {{ toPct(gateInfo(job).gateValue, 2) }}</span><span>Threshold: {{ toPct(gateInfo(job).gateThreshold, 2) }}</span></div>
                   <p v-if="gateInfo(job).reason" class="job-reason">사유: {{ gateInfo(job).reason }}</p>
                 </li>
@@ -582,11 +464,25 @@ onUnmounted(() => {
             </article>
           </section>
 
-          <section v-else class="release-grid">
+          <section class="content-grid lower-grid">
+            <article class="content-card wide">
+              <h2>Detected Drift Signals</h2>
+              <div v-if="driftEvents.length === 0" class="empty">현재 감지된 드리프트 신호가 없습니다.</div>
+              <ul v-else class="job-list">
+                <li v-for="(evt, idx) in driftEvents.slice(0, 6)" :key="`${evt.category}-${evt.metric}-${idx}`" class="job-item">
+                  <div class="job-row"><strong>{{ String(evt.category || 'unknown') }}</strong><span :class="severityClass(evt.severity)">{{ String(evt.severity || 'INFO') }}</span><span>{{ String(evt.metric || '-') }}</span></div>
+                  <p class="drift-secondary">{{ driftSummary(evt) }}</p>
+                </li>
+              </ul>
+            </article>
+
             <article class="content-card">
-              <h2>프로덕션 배포</h2>
+              <h2>Deploy Gate</h2>
+              <div class="state-line"><span>배포 후보</span><strong>{{ candidateJobs.length }}개</strong></div>
+              <div class="state-line"><span>현재 배포 버전</span><strong>{{ String(deployCurrent?.model_version || '-') }}</strong></div>
+              <div class="state-line"><span>이전 버전</span><strong>{{ String(deployPrevious?.model_version || '-') }}</strong></div>
               <label>
-                <span>후보 모델 선택 (게이트 통과)</span>
+                <span>승인할 후보 모델</span>
                 <select v-model="selectedCandidateJobId">
                   <option value="">선택하세요</option>
                   <option v-for="job in candidateJobs" :key="job.job_id" :value="job.job_id">{{ job.job_id }} · {{ String(job.trigger_reason || '-') }} · {{ formatDate(job.completed_at || job.created_at) }}</option>
@@ -595,31 +491,22 @@ onUnmounted(() => {
               <div class="button-row">
                 <button class="primary" :disabled="releaseBusy || !selectedCandidateJobId" @click="promoteCandidate">프로덕션 배포</button>
               </div>
-              <p class="hint">배포 시 현재 모델 스냅샷이 자동 보관되어 롤백에 사용됩니다.</p>
-            </article>
-
-            <article class="content-card">
-              <h2>롤백</h2>
-              <div class="state-line"><span>현재 배포 버전</span><strong>{{ String(deployCurrent?.model_version || '-') }}</strong></div>
-              <div class="state-line"><span>이전 배포 버전</span><strong>{{ String(deployPrevious?.model_version || '-') }}</strong></div>
-              <div class="button-row"><button :disabled="releaseBusy || !deployPrevious" @click="rollbackDeployment">이전 버전으로 롤백</button></div>
-              <p class="hint">롤백은 최근 배포 직전 스냅샷 기준으로 복구됩니다.</p>
-            </article>
-
-            <article class="content-card wide full-row">
-              <h2>배포 이력</h2>
-              <div v-if="deploymentHistory.length === 0" class="empty">표시할 이력이 없습니다.</div>
-              <ul v-else class="history-list">
-                <li v-for="(item, idx) in deploymentHistory" :key="idx" class="history-item">
-                  <span>{{ formatDate(item.deployed_at || item.rolled_back_at || item.created_at) }}</span>
-                  <strong>{{ String(item.model_version || item.event || '-') }}</strong>
-                  <span>{{ String(item.deployed_by || item.requested_by || '-') }}</span>
-                </li>
-              </ul>
+              <p class="hint">자동화는 후보 생성까지 수행하고, 최종 배포만 운영자가 승인합니다.</p>
+              <p v-if="actionMessage" class="action-message">{{ actionMessage }}</p>
             </article>
           </section>
 
-          <p v-if="controlMessage" class="control-message global-msg">{{ controlMessage }}</p>
+          <section class="content-card history-card">
+            <h2>최근 배포 이력</h2>
+            <div v-if="deploymentHistory.length === 0" class="empty">표시할 이력이 없습니다.</div>
+            <ul v-else class="history-list">
+              <li v-for="(item, idx) in deploymentHistory" :key="idx" class="history-item">
+                <span>{{ formatDate(item.deployed_at || item.rolled_back_at || item.created_at) }}</span>
+                <strong>{{ String(item.model_version || item.event || '-') }}</strong>
+                <span>{{ String(item.deployed_by || item.requested_by || '-') }}</span>
+              </li>
+            </ul>
+          </section>
         </template>
       </div>
     </section>
@@ -630,7 +517,10 @@ onUnmounted(() => {
 .enterprise-viewport {
   position: relative;
   min-height: 100vh;
-  background: radial-gradient(circle at 15% 10%, #1f3f55 0%, #0d1824 40%, #090f18 100%);
+  background:
+    radial-gradient(circle at 15% 10%, rgba(30, 64, 175, 0.34) 0%, transparent 28%),
+    radial-gradient(circle at 85% 15%, rgba(14, 165, 233, 0.22) 0%, transparent 24%),
+    linear-gradient(135deg, #07111a 0%, #0c1722 44%, #111f2b 100%);
   color: #ecf4ff;
   overflow: hidden;
   font-family: 'IBM Plex Sans', 'Pretendard', sans-serif;
@@ -639,13 +529,13 @@ onUnmounted(() => {
 .background-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(120deg, rgba(16, 185, 129, 0.07), rgba(56, 189, 248, 0.05));
+  background: linear-gradient(120deg, rgba(16, 185, 129, 0.06), rgba(59, 130, 246, 0.04));
   pointer-events: none;
 }
 
 .console-wrapper {
   position: relative;
-  width: min(1160px, calc(100% - 36px));
+  width: min(1180px, calc(100% - 36px));
   margin: 0 auto;
   padding: 28px 0 40px;
 }
@@ -669,6 +559,12 @@ select {
   cursor: pointer;
 }
 
+button:disabled,
+select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 select {
   width: 100%;
 }
@@ -686,10 +582,11 @@ select {
 
 .analysis-module {
   border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 18px;
-  background: rgba(5, 11, 19, 0.72);
+  border-radius: 20px;
+  background: rgba(5, 11, 19, 0.74);
   backdrop-filter: blur(12px);
-  padding: 18px;
+  padding: 20px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
 }
 
 .module-header {
@@ -708,7 +605,7 @@ select {
 
 .module-title {
   margin: 10px 0 6px;
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 700;
 }
 
@@ -717,6 +614,7 @@ select {
   color: #a8bdd3;
   font-size: 14px;
   line-height: 1.45;
+  max-width: 780px;
 }
 
 .hero-meta {
@@ -732,19 +630,20 @@ select {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .pipeline-item {
   border: 1px solid rgba(148, 163, 184, 0.22);
   background: rgba(10, 20, 32, 0.8);
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: 12px;
+  padding: 12px;
 }
 
 .pipeline-item.active {
-  border-color: rgba(16, 185, 129, 0.65);
+  border-color: rgba(16, 185, 129, 0.68);
   box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.24);
+  background: linear-gradient(180deg, rgba(14, 116, 144, 0.24), rgba(10, 20, 32, 0.92));
 }
 
 .pipeline-item span {
@@ -754,15 +653,83 @@ select {
 
 .pipeline-item strong {
   display: block;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.spotlight-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(59, 130, 246, 0.26);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(12, 74, 110, 0.38), rgba(10, 20, 32, 0.92));
+}
+
+.spotlight-label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #89d5ff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.spotlight-card h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.spotlight-title {
+  font-size: 7px;
+  line-height: 1.35;
+}
+
+.spotlight-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.spotlight-pill {
+  min-width: 148px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.spotlight-pill span {
+  display: block;
+  font-size: 11px;
+  color: #9db6cf;
+}
+
+.spotlight-pill strong {
+  display: block;
   margin-top: 4px;
   font-size: 13px;
+}
+
+.content-grid,
+.automation-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.lower-grid {
+  align-items: start;
 }
 
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .kpi-card {
@@ -789,37 +756,10 @@ select {
   color: #88a0b9;
 }
 
-.tab-switcher {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.tab-btn.active {
-  border-color: rgba(45, 212, 191, 0.55);
-  background: rgba(17, 94, 89, 0.35);
-}
-
-.content-grid {
-  display: grid;
-  grid-template-columns: 1fr 1.6fr;
-  gap: 10px;
-}
-
-.release-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.full-row {
-  grid-column: 1 / -1;
-}
-
 .content-card {
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(10, 20, 32, 0.82);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 14px;
 }
 
@@ -832,6 +772,10 @@ select {
   min-height: 280px;
 }
 
+.history-card {
+  margin-top: 0;
+}
+
 .state-line {
   display: flex;
   justify-content: space-between;
@@ -841,30 +785,12 @@ select {
   font-size: 13px;
 }
 
-.control-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
 label {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
   color: #95abc1;
-}
-
-input {
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 8px;
-  background: rgba(6, 13, 21, 0.92);
-  color: #ebf5ff;
-  padding: 9px 10px;
-}
-
-.wide-input {
-  grid-column: 1 / -1;
 }
 
 .button-row {
@@ -884,44 +810,30 @@ input {
   color: #8aa0b6;
 }
 
-.drift-card-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.event-chips {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  margin-top: 10px;
 }
 
-.drift-card,
+.event-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+}
+
 .job-item,
 .history-item {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 10px;
   padding: 10px;
   background: rgba(255, 255, 255, 0.02);
-}
-
-.drift-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.drift-sub {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #9ab0c7;
-}
-
-.drift-primary {
-  margin: 6px 0 0;
-  font-size: 14px;
-}
-
-.drift-secondary {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #8fa4bb;
 }
 
 .job-list,
@@ -947,10 +859,20 @@ input {
   color: #9ab0c7;
 }
 
-.job-reason {
+.job-reason,
+.drift-secondary,
+.action-message {
   margin: 6px 0 0;
   font-size: 12px;
+}
+
+.job-reason,
+.action-message {
   color: #fca5a5;
+}
+
+.drift-secondary {
+  color: #8fa4bb;
 }
 
 .state-panel {
@@ -964,10 +886,6 @@ input {
 .empty {
   font-size: 13px;
   color: #9ab0c7;
-}
-
-.global-msg {
-  margin-top: 10px;
 }
 
 .ok {
@@ -985,7 +903,9 @@ input {
 @media (max-width: 980px) {
   .utility-bar,
   .system-meta,
-  .button-row {
+  .button-row,
+  .spotlight-card,
+  .spotlight-meta {
     flex-direction: column;
     align-items: stretch;
   }
@@ -993,9 +913,7 @@ input {
   .pipeline-strip,
   .kpi-grid,
   .content-grid,
-  .release-grid,
-  .control-grid,
-  .drift-card-grid,
+  .automation-grid,
   .job-row,
   .history-item {
     grid-template-columns: 1fr;

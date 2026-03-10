@@ -7,6 +7,7 @@ from app.core.database import get_db
 import os
 from datetime import datetime
 
+from app.models.domain import AIOpsEvent
 from app.schemas.api_models import (
     AIOpsAlertsResponse,
     AIOpsDriftResponse,
@@ -50,7 +51,7 @@ async def start_retraining(
     token_payload: Dict[str, Any] = Depends(verify_bearer_token),
 ):
     requested_by = str(token_payload.get("sub", "") or "")
-    return queue_retrain_job(
+    result = queue_retrain_job(
         db,
         period_months=payload.period_months,
         model_target=payload.model_target,
@@ -58,6 +59,11 @@ async def start_retraining(
         requested_by=requested_by,
         payload={"requested_from": "api.v1.aiops.retrain"},
     )
+    try:
+        run_retrain_cycle_once(limit=1)
+    except Exception:
+        pass
+    return result
 
 
 @router.get("/retrain/jobs", response_model=RetrainJobsResponse)
@@ -96,6 +102,41 @@ async def get_alerts(
     db: Session = Depends(get_db),
 ):
     return compute_aiops_alerts(db, limit=limit)
+
+
+@router.get("/events/recent")
+async def get_recent_events(
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    token_payload: Dict[str, Any] = Depends(verify_bearer_token),
+):
+    _ = token_payload
+    rows = (
+        db.query(AIOpsEvent)
+        .order_by(AIOpsEvent.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "items": [
+            {
+                "event_id": int(row.event_id),
+                "event_type": row.event_type,
+                "severity": row.severity,
+                "service": row.service,
+                "stage": row.stage,
+                "incident_id": row.incident_id,
+                "device_id": row.device_id,
+                "model_name": row.model_name,
+                "status": row.status,
+                "message": row.message,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ],
+        "total": len(rows),
+        "generated_at": datetime.utcnow().isoformat(),
+    }
 
 
 @router.post("/runtime/retrain-cycle")

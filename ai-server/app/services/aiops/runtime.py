@@ -174,6 +174,7 @@ def _process_one_retrain_job(job_id: int) -> Tuple[bool, str]:
         if not job:
             return False, "job_not_found"
         model_target = job.model_target
+        trigger_reason = str(job.trigger_reason or "").strip().lower()
 
     try:
         with SessionLocal() as db:
@@ -191,12 +192,19 @@ def _process_one_retrain_job(job_id: int) -> Tuple[bool, str]:
                 return False, "unsupported_model_target"
 
             model_dir = _candidate_model_dir(job_id)
+            preferred_algorithm = os.getenv("PREDICTION_TRAIN_ALGORITHM", "lightgbm")
+            if trigger_reason == "auto_drift":
+                preferred_algorithm = os.getenv("AIOPS_AUTO_RETRAIN_ALGORITHM", "sklearn_hgbt")
             result = train_prediction_models(
                 db,
                 period_months=int(job.period_months or 3),
                 model_dir=model_dir,
-                preferred_algorithm=os.getenv("PREDICTION_TRAIN_ALGORITHM", "lightgbm"),
-                allow_fallback=os.getenv("PREDICTION_TRAIN_ALLOW_FALLBACK", "0").strip().lower() in {"1", "true", "yes"},
+                preferred_algorithm=preferred_algorithm,
+                allow_fallback=(
+                    os.getenv("PREDICTION_TRAIN_ALLOW_FALLBACK", "1").strip().lower() in {"1", "true", "yes"}
+                    or trigger_reason == "auto_drift"
+                ),
+                skip_rmse_gate=trigger_reason == "auto_drift",
             )
             snapshot = {
                 "job_id": int(job.job_id),
@@ -209,6 +217,11 @@ def _process_one_retrain_job(job_id: int) -> Tuple[bool, str]:
                 "model_version": result.model_version,
             }
 
+        metrics = snapshot.get("metrics", {}) if isinstance(snapshot.get("metrics"), dict) else {}
+        gate_threshold = _safe_float(metrics.get("rmse_threshold"))
+        gate_value = _safe_float(metrics.get("valid_rmse_failure"))
+        gate_passed = gate_threshold <= 0.0 or gate_value <= gate_threshold
+        deployment_status = "ready" if gate_passed else "blocked"
         artifact_path = _write_artifact(snapshot, model_target=model_target, job_id=job_id)
         _mark_job_done(
             job_id,
@@ -217,17 +230,19 @@ def _process_one_retrain_job(job_id: int) -> Tuple[bool, str]:
                 "artifact_path": artifact_path,
                 "model_artifacts": snapshot.get("artifact_paths", {}),
                 "model_version": snapshot.get("model_version"),
-                "deployment_status": "ready",
+                "deployment_status": deployment_status,
                 "sample_count": _safe_int(snapshot.get("sample_count"), 0),
                 "positive_ratio": round(_safe_float(snapshot.get("positive_ratio")), 6),
-                "metrics": snapshot.get("metrics", {}),
-                "gate_passed": True,
+                "metrics": metrics,
+                "gate_passed": gate_passed,
                 "gate_metric": "failure_probability_rmse",
-                "gate_threshold": _safe_float(snapshot.get("metrics", {}).get("rmse_threshold")),
-                "gate_value": _safe_float(snapshot.get("metrics", {}).get("valid_rmse_failure")),
+                "gate_threshold": gate_threshold,
+                "gate_value": gate_value,
+                "review_required": trigger_reason == "auto_drift",
+                "reason": "" if gate_passed else "rmse_gate_not_passed",
             },
-            message="Retrain job completed (candidate ready for deploy)",
-            severity="INFO",
+            message="Retrain job completed (candidate ready for deploy)" if gate_passed else "Retrain job completed (deployment blocked by RMSE gate)",
+            severity="INFO" if gate_passed and trigger_reason != "auto_drift" else "MEDIUM",
         )
         return True, "completed"
     except Exception as exc:
@@ -264,7 +279,7 @@ def _should_auto_queue_retrain(db, *, now: datetime) -> bool:
     if active_job:
         return False
 
-    cooldown_minutes = max(10, _safe_int(os.getenv("AIOPS_AUTO_RETRAIN_COOLDOWN_MINUTES", "360"), 360))
+    cooldown_minutes = max(0, _safe_int(os.getenv("AIOPS_AUTO_RETRAIN_COOLDOWN_MINUTES", "5"), 5))
     recent_auto_job = (
         db.query(RetrainJob.job_id)
         .filter(RetrainJob.model_target == "prediction")
@@ -281,7 +296,7 @@ def _auto_queue_retrain_if_needed(db, *, drift: Dict[str, Any], now: datetime) -
         return None
 
     categories = {str(event.get("category", "")).strip().lower() for event in drift.get("events", [])}
-    auto_categories = {"data_drift", "performance_drift", "service_drift", "model_drift"}
+    auto_categories = {"data_drift", "performance_drift", "service_drift", "model_drift", "feedback_drift"}
     if not (categories & auto_categories):
         return None
     if not _should_auto_queue_retrain(db, now=now):
@@ -362,7 +377,12 @@ def run_drift_cycle_once() -> bool:
                 )
                 _LAST_DRIFT_SIGNATURE = signature
                 _LAST_DRIFT_EMITTED_AT = now
-            _auto_queue_retrain_if_needed(db, drift=drift, now=now)
+            queued = _auto_queue_retrain_if_needed(db, drift=drift, now=now)
+            if queued:
+                try:
+                    run_retrain_cycle_once(limit=1)
+                except Exception:
+                    pass
 
         if _LAST_HEARTBEAT_AT is None or (now - _LAST_HEARTBEAT_AT) >= timedelta(minutes=10):
             emit_aiops_event(

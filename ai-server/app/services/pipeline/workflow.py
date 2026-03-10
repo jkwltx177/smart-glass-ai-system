@@ -9,7 +9,7 @@ from app.services.prediction import (
     build_timeseries_features_payload,
     predict_from_timeseries_summary,
 )
-from app.services.aiops import emit_aiops_event
+from app.services.aiops import emit_aiops_event, run_drift_cycle_once
 from app.core.database import SessionLocal
 from app.models.domain import ErrorLog, Incident, Prediction
 
@@ -244,6 +244,10 @@ def predictive_ai_node(state: AgentState):
                         },
                         db=db,
                     )
+                try:
+                    run_drift_cycle_once()
+                except Exception as e:
+                    fallbacks.append(f"aiops_drift_cycle_error:{str(e)}")
             except Exception as e:
                 fallbacks.append(f"prediction_persist_error:{str(e)}")
                 emit_aiops_event(

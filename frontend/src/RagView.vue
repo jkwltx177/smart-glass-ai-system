@@ -278,10 +278,13 @@ const loadDevices = async () => {
     }
     const data = await response.json()
     const items = Array.isArray(data?.items) ? data.items : []
-    deviceOptions.value = items.map((it: any) => ({
-      device_id: String(it.device_id ?? ''),
-      device_name: typeof it.device_name === 'string' ? it.device_name : '',
-    })).filter((it: { device_id: string }) => !!it.device_id)
+    deviceOptions.value = items
+      .map((it: any) => ({
+        device_id: String(it.device_id ?? ''),
+        device_name: typeof it.device_name === 'string' ? it.device_name : '',
+      }))
+      .filter((it: { device_id: string }) => !!it.device_id)
+      .filter((it: { device_id: string }) => !it.device_id.startsWith('DEMO-AIOPS-'))
 
   } catch (error) {
     devicesError.value = error instanceof Error ? error.message : '장비 목록 조회 오류'
