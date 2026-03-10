@@ -30,3 +30,7 @@ jwt:
 
 auth:
   signup-verification-code: ${AUTH_SIGNUP_VERIFICATION_CODE:SG-DEMO-CODE-2026}
+
+app:
+  cors:
+    allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,http://192.168.*:*,http://172.*:*,https://localhost:*,https://127.0.0.1:*,https://192.168.*:*,https://172.*:*,https://10.*:*}

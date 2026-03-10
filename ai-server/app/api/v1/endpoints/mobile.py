@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import secrets
 import threading
+import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -78,6 +81,11 @@ class SessionStartRequest(BaseModel):
 
 class SessionEquipmentUpdateRequest(BaseModel):
     equipment_id: str
+
+
+class MobileTTSRequest(BaseModel):
+    text: str
+    voice: Optional[str] = None
 
 
 @router.post("/session/start")
@@ -184,6 +192,48 @@ async def update_mobile_session_equipment(
         session["last_seen"] = _utcnow()
 
     return {"status": "ok", "code": code.upper(), "equipment_id": equipment_id}
+
+
+@router.post("/tts")
+async def mobile_tts(payload: MobileTTSRequest):
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured")
+
+    model = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+    voice = (payload.voice or os.getenv("OPENAI_TTS_VOICE", "alloy")).strip() or "alloy"
+
+    try:
+        async with httpx.AsyncClient(timeout=40.0) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/audio/speech",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "voice": voice,
+                    "input": text,
+                    "format": "mp3",
+                },
+            )
+        if resp.status_code >= 400:
+            detail = ""
+            try:
+                detail = str(resp.json())
+            except Exception:
+                detail = resp.text
+            raise HTTPException(status_code=502, detail=f"TTS upstream error: {detail[:300]}")
+        return Response(content=resp.content, media_type="audio/mpeg")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}")
 
 
 @router.post("/session/{code}/submit")
