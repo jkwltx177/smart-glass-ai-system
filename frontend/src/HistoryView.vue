@@ -320,7 +320,10 @@ onMounted(() => fetchHistory())
 }
 
 .row-action-btn:hover { border-color: #60a5fa; color: #fff; }
-.row-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.row-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 /* Footer */
 .table-footer {
