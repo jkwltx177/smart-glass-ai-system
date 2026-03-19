@@ -26,6 +26,36 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+  ai-server:
+    build:
+      context: ./ai-server
+      dockerfile: Dockerfile
+    container_name: smart-glass-ai-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./ai-server/.env   # 환경변수 파일 연결
+    depends_on:
+      project-db:
+        condition: service_healthy # DB가 정상 작동한 후 서버를 구동
+    volumes:
+      # 로컬 모델 가중치 및 저장소 연동
+      - ./ai-server/models/weights:/app/models/weights
+      - ./ai-server/storage:/app/storage
+
+  # ! 인증 자바 서버까지 추가
+  auth-server:
+    build:
+      context: ./auth-server
+      dockerfile: Dockerfile
+    container_name: smart-glass-auth-server
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      project-db:
+        condition: service_healthy
 
 volumes:
   project_db_data:
