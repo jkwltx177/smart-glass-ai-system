@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 const props = defineProps<{
   userName: string
@@ -15,6 +15,30 @@ const emit = defineEmits<{
 const activeMenu = ref('dashboard')
 const ragImageUrl = new URL('../ragImage.png', import.meta.url).href
 const predictImageUrl = new URL('../predictImage.png', import.meta.url).href
+
+type AIOpsOverview = {
+  incident_count: number
+  completed_incident_count: number
+  failed_incident_count: number
+  prediction_count: number
+  events_last_24h: number
+  critical_events_last_24h: number
+  fallback_events_last_24h: number
+  avg_incident_latency_seconds: number
+  latest_prediction?: {
+    model_name?: string | null
+    model_version?: string | null
+  }
+}
+
+type RetrainJobItem = {
+  job_id: string
+  status: string
+  created_at?: string | null
+}
+
+const aiopsOverview = ref<AIOpsOverview | null>(null)
+const retrainJobs = ref<RetrainJobItem[]>([])
 
 // 섹션별 노출 상태 관리
 const visibleSections = ref({
@@ -85,6 +109,8 @@ onMounted(() => {
 
   document.querySelectorAll('.observe-target').forEach(el => observer?.observe(el))
   updateScrollMotion()
+  fetchAIOpsOverview()
+  fetchRetrainJobs()
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('resize', onScroll)
 })
@@ -127,6 +153,56 @@ const resetCardPointer = (event: MouseEvent) => {
   card.style.setProperty('--rx', '0deg')
   card.style.setProperty('--ry', '0deg')
 }
+
+const fetchAIOpsOverview = async () => {
+  try {
+    const response = await fetch('/api/aiops/overview')
+    if (!response.ok) return
+    aiopsOverview.value = await response.json()
+  } catch {
+    // Keep menu stable even if overview API fails.
+  }
+}
+
+const getAuthHeaders = (): Record<string, string> => {
+  const accessToken = localStorage.getItem('accessToken')
+  const tokenType = localStorage.getItem('tokenType') || 'Bearer'
+  if (!accessToken) return {}
+  return { Authorization: `${tokenType} ${accessToken}` }
+}
+
+const fetchRetrainJobs = async () => {
+  const headers = getAuthHeaders()
+  if (!headers.Authorization) {
+    retrainJobs.value = []
+    return
+  }
+  try {
+    const response = await fetch('/api/aiops/retrain/jobs?limit=20', { headers })
+    if (!response.ok) return
+    const data = await response.json()
+    retrainJobs.value = Array.isArray(data?.items) ? data.items : []
+  } catch {
+    retrainJobs.value = []
+  }
+}
+
+const queuedJobCount = computed(
+  () => retrainJobs.value.filter((j) => String(j.status || '').toLowerCase() === 'queued').length
+)
+const runningJobCount = computed(
+  () => retrainJobs.value.filter((j) => String(j.status || '').toLowerCase() === 'running').length
+)
+const completedJobCount = computed(
+  () => retrainJobs.value.filter((j) => String(j.status || '').toLowerCase() === 'completed').length
+)
+const failedJobCount = computed(
+  () => retrainJobs.value.filter((j) => String(j.status || '').toLowerCase() === 'failed').length
+)
+const latestRetrainStatus = computed(() => {
+  const latest = retrainJobs.value[0]
+  return String(latest?.status || '-').toLowerCase()
+})
 </script>
 
 <template>
@@ -181,15 +257,20 @@ const resetCardPointer = (event: MouseEvent) => {
       <section class="dashboard-content">
         <section class="intro-stage">
           <div id="summary" class="observe-target reveal-section" :class="{ visible: visibleSections.summary }" :style="sectionStyle('summary')">
-            <h2 class="reveal-title">지능형 ECU 데이터 관제와 미래 예측의 통합</h2>
-            <p class="reveal-desc">RAG 기술로 복잡한 문서를 즉각 지식화하고, 예측형 AI로 오류를 사전 방지하는 차세대 관제 환경입니다.</p>
+            <h2 class="reveal-title">ECU 품질 진단과 예방 운영의 통합</h2>
+            <p class="reveal-desc">서비스 신뢰성, 모델 성능·재학습, 리스크 기반 의사결정을 통합 운영합니다.</p>
+            <div class="summary-pillars">
+              <span>운영 신뢰성 모니터링</span>
+              <span>모델 성능·재학습 운영</span>
+              <span>리스크 기반 의사결정 지원</span>
+            </div>
           </div>
 
           <div id="ragDetail" class="observe-target detail-block" :class="{ visible: visibleSections.ragDetail }" :style="sectionStyle('ragDetail')">
             <div class="detail-text">
-              <span class="tag">RAG TECHNOLOGY</span>
-              <h3>기술 문서의 즉각적 해독</h3>
-              <p>방대한 ECU 회로도와 매뉴얼을 AI가 실시간으로 탐색합니다. 엔지니어는 더 이상 문서를 찾지 않고, AI에게 질문하여 정확한 소스와 해결책을 얻습니다.</p>
+              <span class="tag">QUALITY ASSIST</span>
+              <h3>품질 이슈 원인 근거의 빠른 확보</h3>
+              <p>오류 로그, 과거 조치 이력, 점검 기준을 통합 조회해 현장 엔지니어가 품질 판단에 필요한 근거를 빠르게 확인할 수 있습니다.</p>
             </div>
             <div class="detail-visual" :style="{ transform: `translateY(${(-sectionOffsets.ragDetail * 22).toFixed(2)}px)` }">
               <img class="detail-image" :src="ragImageUrl" alt="ECU 데이터 매핑 이미지" />
@@ -199,8 +280,8 @@ const resetCardPointer = (event: MouseEvent) => {
           <div id="aiDetail" class="observe-target detail-block reverse" :class="{ visible: visibleSections.aiDetail }" :style="sectionStyle('aiDetail')">
             <div class="detail-text">
               <span class="tag">PREDICTIVE AI</span>
-              <h3>미래를 대비하는 데이터 분석</h3>
-              <p>ECU의 미세한 파형 변화와 로그 패턴을 분석하여 고장이 발생하기 전 징후를 감지합니다. 예방적 유지보수를 통해 시스템 다운타임을 최소화하십시오.</p>
+              <h3>품질 리스크의 선제적 대응</h3>
+              <p>센서 이상 패턴과 실패 확률을 기반으로 우선 조치 대상을 제시해 다운타임과 불량 확산 위험을 줄입니다.</p>
             </div>
             <div class="detail-visual" :style="{ transform: `translateY(${(-sectionOffsets.aiDetail * 22).toFixed(2)}px)` }">
               <img class="detail-image" :src="predictImageUrl" alt="AI 패턴 분석 이미지" />
@@ -212,6 +293,9 @@ const resetCardPointer = (event: MouseEvent) => {
           <div id="serviceSelect" class="observe-target welcome-banner reveal-focus" :class="{ visible: visibleSections.serviceSelect }" :style="sectionStyle('serviceSelect')">
             <h2 class="welcome-text">지능형 서비스 선택</h2>
             <p class="welcome-sub">차량 제어 유닛(ECU) 데이터를 관리하는 중앙 제어 센터입니다.</p>
+            <div class="quick-actions">
+              <button class="quick-action-btn" @click="handleNav('history')">요청 이력 보기</button>
+            </div>
           </div>
 
           <div class="service-grid">
@@ -228,32 +312,40 @@ const resetCardPointer = (event: MouseEvent) => {
               </div>
             </div>
           
-            <div class="service-card" @click="handleNav('history')" @mousemove="handleCardPointerMove" @mouseleave="resetCardPointer">
+            <div class="service-card" @click="handleNav('analytics')" @mousemove="handleCardPointerMove" @mouseleave="resetCardPointer">
               <div class="card-glow secondary"></div>
               <div class="card-inner">
                 <div class="card-header">
-                  <span class="badge badge-secondary">데이터 로그</span>
+                  <span class="badge badge-secondary">AIOPS 운영</span>
                   <div class="card-icon">📊</div>
                 </div>
-                <h3 class="card-title">예측형 AI 분석</h3>
-                <p class="card-description">과거 요청 데이터와 AI 응답 이력을 분석하여 고장 징후 및 서비스 로그를 관리합니다.</p>
-                <div class="card-footer">분석 시작 <span class="arrow">→</span></div>
+                <h3 class="card-title">AIOps 운영 현황</h3>
+                <p class="card-description">운영 모니터링, 모델 운영, 샘플 리스크를 한 화면에서 점검합니다.</p>
+                <div class="card-footer">운영 현황 보기 <span class="arrow">→</span></div>
               </div>
             </div>
           </div>
 
-          <div class="metric-row">
-            <div class="metric-card">
-              <span class="metric-label">API 호출 성공률</span>
-              <span class="metric-value text-success">99.9%</span>
+          <div class="ops-row">
+            <div class="ops-card">
+              <span class="ops-label">운영 이벤트(24h)</span>
+              <span class="ops-value">{{ aiopsOverview?.events_last_24h ?? 0 }}</span>
+              <span class="ops-sub">critical {{ aiopsOverview?.critical_events_last_24h ?? 0 }}</span>
             </div>
-            <div class="metric-card">
-              <span class="metric-label">평균 응답 속도</span>
-              <span class="metric-value">1.2s</span>
+            <div class="ops-card">
+              <span class="ops-label">처리 지연</span>
+              <span class="ops-value">{{ aiopsOverview ? `${Number(aiopsOverview.avg_incident_latency_seconds || 0).toFixed(1)}s` : '-' }}</span>
+              <span class="ops-sub">fallback {{ aiopsOverview?.fallback_events_last_24h ?? 0 }}</span>
             </div>
-            <div class="metric-card">
-              <span class="metric-label">처리 토큰 수</span>
-              <span class="metric-value">4.2M</span>
+            <div class="ops-card">
+              <span class="ops-label">재학습 큐</span>
+              <span class="ops-value">{{ queuedJobCount }} / {{ runningJobCount }}</span>
+              <span class="ops-sub">queued / running</span>
+            </div>
+            <div class="ops-card">
+              <span class="ops-label">최근 재학습</span>
+              <span class="ops-value text-success">{{ latestRetrainStatus }}</span>
+              <span class="ops-sub">completed {{ completedJobCount }} · failed {{ failedJobCount }}</span>
             </div>
           </div>
         </section>
@@ -383,6 +475,24 @@ const resetCardPointer = (event: MouseEvent) => {
   margin-top: 16px;
   background: linear-gradient(90deg, rgba(153, 196, 255, 0.95), rgba(153, 196, 255, 0.05));
 }
+.quick-actions {
+  margin-top: 14px;
+}
+.quick-action-btn {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(12, 18, 30, 0.55);
+  color: #dbeafe;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+.quick-action-btn:hover {
+  border-color: rgba(147, 197, 253, 0.7);
+  background: rgba(30, 58, 138, 0.35);
+}
 .text-glow { background: linear-gradient(95deg, #dce9ff 0%, #97beff 48%, #709fff 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .service-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 34px; }
 .service-card {
@@ -415,15 +525,25 @@ const resetCardPointer = (event: MouseEvent) => {
   box-shadow: 0 22px 48px rgba(50, 108, 211, 0.27);
 }
 .card-header { display: flex; justify-content: space-between; margin-bottom: 25px; }
-.card-title { font-size: 22px; margin-bottom: 15px; }
+.card-title { font-size: clamp(26px, 2.1vw, 30px); margin-bottom: 15px; line-height: 1.2; }
 .card-description { color: #94a3b8; line-height: 1.6; font-size: 15px; margin-bottom: 30px; }
 .card-footer { color: #9ac2ff; font-weight: 700; display: flex; align-items: center; gap: 8px; letter-spacing: 0.01em; }
 
 /* 지표 레이아웃 */
-.metric-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 100px; }
-.metric-card { background: var(--glass-bg); padding: 24px; border-radius: 16px; border: 1px solid var(--line-soft); backdrop-filter: blur(10px); }
-.metric-label { font-size: 12px; color: #64748b; margin-bottom: 8px; display: block; }
-.metric-value { font-size: 28px; font-weight: 700; }
+.ops-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 100px; }
+.ops-card {
+  background: linear-gradient(180deg, rgba(9, 17, 30, 0.82), rgba(7, 14, 24, 0.72));
+  padding: 22px 24px;
+  border-radius: 22px;
+  border: 1px solid rgba(154, 179, 216, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(106, 143, 196, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ops-label { font-size: 14px; color: #96a8c1; font-weight: 700; }
+.ops-value { font-size: clamp(28px, 2.4vw, 34px); line-height: 1.15; font-weight: 800; letter-spacing: 0; color: #e9f2ff; }
+.ops-sub { font-size: 12px; color: #97abc7; font-weight: 600; }
 .text-success { color: #10b981; }
 
 /* 스크롤 애니메이션 섹션 */
@@ -432,7 +552,38 @@ const resetCardPointer = (event: MouseEvent) => {
 
 .reveal-section { text-align: center; margin-bottom: 64px; }
 .reveal-title { font-size: clamp(30px, 3.8vw, 55px); letter-spacing: -0.03em; line-height: 1.08; margin-bottom: 14px; font-weight: 760; }
-.reveal-desc { color: #9fb2cf; max-width: 760px; margin: 0 auto; line-height: 1.8; font-size: 17px; }
+.reveal-desc {
+  color: #9fb2cf;
+  max-width: 1100px;
+  margin: 0 auto;
+  line-height: 1.8;
+  font-size: 17px;
+  word-break: keep-all;
+  line-break: strict;
+}
+
+@media (min-width: 1280px) {
+  .reveal-desc {
+    white-space: nowrap;
+  }
+}
+
+.summary-pillars {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.summary-pillars span {
+  font-size: 11px;
+  color: #c9d8ee;
+  border: 1px solid rgba(166, 197, 255, 0.24);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: rgba(17, 28, 44, 0.35);
+}
 
 .detail-block { display: flex; align-items: center; gap: 32px; margin-bottom: 52px; }
 .detail-block.reverse { flex-direction: row-reverse; }
@@ -464,6 +615,7 @@ const resetCardPointer = (event: MouseEvent) => {
   .service-grid { grid-template-columns: 1fr; }
   .detail-block { flex-direction: column; text-align: center; }
   .detail-block.reverse { flex-direction: column; }
+  .ops-row { grid-template-columns: repeat(2, 1fr); }
 }
 
 .content-header {

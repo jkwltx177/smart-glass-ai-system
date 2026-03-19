@@ -73,6 +73,11 @@ PREDICTION_MODEL_DIR=models/weights
 # 추가 설정
 DEBUG=False
 LOG_LEVEL=INFO
+
+# AIOps Runtime (백그라운드 워커)
+AIOPS_RETRAIN_POLL_SECONDS=15
+AIOPS_MONITOR_INTERVAL_SECONDS=60
+AIOPS_RETRAIN_ARTIFACT_DIR=storage/retrain-artifacts
 ```
 
 ### 4단계: 서버 실행
@@ -228,6 +233,34 @@ curl -X GET "http://localhost:8000/api/v1/incidents"
 
 # 특정 사이트 필터링
 curl -X GET "http://localhost:8000/api/v1/incidents?site=Plant%20A&limit=20"
+```
+
+---
+
+### G. AIOps 운영 제어 (인증 필요)
+
+```bash
+# 1) 재학습 요청 큐 등록
+curl -X POST "http://localhost:8000/api/v1/aiops/retrain" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "period_months": 3,
+    "model_target": "prediction",
+    "trigger_reason": "manual"
+  }'
+
+# 2) 재학습 큐 즉시 처리 사이클 실행
+curl -X POST "http://localhost:8000/api/v1/aiops/runtime/retrain-cycle?limit=3" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
+
+# 3) 드리프트 점검 즉시 실행
+curl -X POST "http://localhost:8000/api/v1/aiops/runtime/drift-cycle" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
+
+# 4) 재학습 잡 상태 조회
+curl -X GET "http://localhost:8000/api/v1/aiops/retrain/jobs?status=&limit=30" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
 ```
 
 ---

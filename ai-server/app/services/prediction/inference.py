@@ -1,5 +1,6 @@
 import math
 import os
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -133,9 +134,34 @@ class Predictor:
         self._lgbm_rul = None
         self._xgb_fail = None
         self._xgb_rul = None
+        self._sk_fail = None
+        self._sk_rul = None
         self._tcn_fail = None
         self._tcn_rul = None
         self._versions: List[str] = []
+        self._active_algorithms: Optional[set[str]] = None
+
+    def _load_meta_policy(self) -> None:
+        meta_path = self.model_dir / "model_meta.json"
+        if not meta_path.exists():
+            return
+        try:
+            with meta_path.open("r", encoding="utf-8") as fh:
+                meta = json.load(fh)
+            algorithm = str(meta.get("algorithm", "")).strip().lower()
+            mapped = {
+                "lightgbm": {"lgbm"},
+                "lgbm": {"lgbm"},
+                "sklearn_hgbt": {"sklearn"},
+                "sklearn": {"sklearn"},
+                "xgboost": {"xgb"},
+                "xgb": {"xgb"},
+                "tcn": {"tcn"},
+            }.get(algorithm)
+            if mapped:
+                self._active_algorithms = mapped
+        except Exception:
+            self._active_algorithms = None
 
     def _load_lightgbm(self) -> None:
         try:
@@ -191,13 +217,57 @@ class Predictor:
             if f"tcn:{rul_path.name}" not in self._versions:
                 self._versions.append(f"tcn:{rul_path.name}")
 
+    def _load_sklearn(self) -> None:
+        try:
+            import joblib  # type: ignore
+        except Exception:
+            return
+
+        fail_path = self.model_dir / "sklearn_failure.joblib"
+        rul_path = self.model_dir / "sklearn_rul.joblib"
+        if fail_path.exists():
+            try:
+                self._sk_fail = joblib.load(fail_path)
+                self._versions.append(f"sk:{fail_path.name}")
+            except Exception:
+                self._sk_fail = None
+        if rul_path.exists():
+            try:
+                self._sk_rul = joblib.load(rul_path)
+                if f"sk:{rul_path.name}" not in self._versions:
+                    self._versions.append(f"sk:{rul_path.name}")
+            except Exception:
+                self._sk_rul = None
+
     def _lazy_load(self) -> None:
         if self._ready:
             return
+        self._load_meta_policy()
+        self._load_sklearn()
         self._load_lightgbm()
         self._load_xgboost()
         self._load_tcn()
         self._ready = True
+
+    def _is_active(self, key: str) -> bool:
+        if not self._active_algorithms:
+            return True
+        return key in self._active_algorithms
+
+    def _visible_versions(self) -> List[str]:
+        if not self._versions:
+            return ["ensemble"]
+        if not self._active_algorithms:
+            return self._versions[:]
+        prefix_map = {
+            "sklearn": "sk:",
+            "lgbm": "lgbm:",
+            "xgb": "xgb:",
+            "tcn": "tcn:",
+        }
+        allowed_prefixes = tuple(prefix_map[k] for k in self._active_algorithms if k in prefix_map)
+        filtered = [v for v in self._versions if v.startswith(allowed_prefixes)]
+        return filtered or self._versions[:]
 
     @staticmethod
     def _fit_dim(features: List[float], target_dim: int) -> List[float]:
@@ -278,6 +348,27 @@ class Predictor:
                         continue
         return fail, rul
 
+    def _predict_sklearn(self, features: List[float]) -> Tuple[Optional[float], Optional[float]]:
+        if self._sk_fail is None and self._sk_rul is None:
+            return None, None
+        arr = [features]
+        fail = None
+        rul = None
+        if self._sk_fail is not None:
+            try:
+                if hasattr(self._sk_fail, "predict_proba"):
+                    fail = float(self._sk_fail.predict_proba(arr)[0][1])
+                else:
+                    fail = float(self._sk_fail.predict(arr)[0])
+            except Exception:
+                fail = None
+        if self._sk_rul is not None:
+            try:
+                rul = float(self._sk_rul.predict(arr)[0])
+            except Exception:
+                rul = None
+        return fail, rul
+
     def predict(self, telemetry_summary: Optional[Dict]) -> PredictionResult:
         self._lazy_load()
         features = _build_features(telemetry_summary)
@@ -286,9 +377,10 @@ class Predictor:
         rul_preds: List[float] = []
 
         for fail, rul in (
-            self._predict_lgbm(features),
-            self._predict_xgb(features),
-            self._predict_tcn(features),
+            self._predict_sklearn(features) if self._is_active("sklearn") else (None, None),
+            self._predict_lgbm(features) if self._is_active("lgbm") else (None, None),
+            self._predict_xgb(features) if self._is_active("xgb") else (None, None),
+            self._predict_tcn(features) if self._is_active("tcn") else (None, None),
         ):
             if fail is not None and not math.isnan(fail):
                 fail_preds.append(_clip(fail, 0.0, 1.0))
@@ -315,8 +407,12 @@ class Predictor:
             failure_probability=round(failure_probability, 4),
             predicted_rul_minutes=round(predicted_rul, 2),
             anomaly_score=round(anomaly_score, 4),
-            model_versions=self._versions[:] if self._versions else ["ensemble"],
-            model_source="ensemble",
+            model_versions=self._visible_versions(),
+            model_source=(
+                "ensemble"
+                if not self._active_algorithms
+                else ",".join(sorted(self._active_algorithms))
+            ),
         )
 
 
@@ -325,3 +421,8 @@ _PREDICTOR = Predictor()
 
 def predict_from_timeseries_summary(telemetry_summary: Optional[Dict]) -> PredictionResult:
     return _PREDICTOR.predict(telemetry_summary)
+
+
+def reload_predictor(model_dir: Optional[str] = None) -> None:
+    global _PREDICTOR
+    _PREDICTOR = Predictor(model_dir=model_dir)

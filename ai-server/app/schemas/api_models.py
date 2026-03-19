@@ -161,6 +161,26 @@ class RetrainResponse(BaseModel):
     created_at: Optional[str] = None
 
 
+class RetrainJobItem(BaseModel):
+    job_id: str
+    model_target: str
+    period_months: int
+    trigger_reason: str
+    requested_by: Optional[str] = None
+    status: str
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    payload: Dict[str, Any] = {}
+
+
+class RetrainJobsResponse(BaseModel):
+    items: List[RetrainJobItem]
+    total: int
+    status_summary: Dict[str, int]
+    generated_at: str
+
+
 class ModelRegistryItem(BaseModel):
     name: str
     version: str
