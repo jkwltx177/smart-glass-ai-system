@@ -10,7 +10,7 @@ spec:
   ports:
     - protocol: TCP
       port: 80
-      targetPort: 8080
+      targetPort: 8081
 
 ---
 # 2. Auth 서버용 Deployment
@@ -34,7 +34,7 @@ spec:
         # CI 파이프라인에서 Harbor에 올린 auth-server 이미지 경로
         image: amdp-registry.skala-ai.com/skala26a-ai1/auth-server:latest
         ports:
-        - containerPort: 8080
+        - containerPort: 8081
         
         # Auth 서버 또한 회원 정보 읽기위해 DB 연결
         env:
