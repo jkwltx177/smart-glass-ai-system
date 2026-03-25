@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sk007-ai-server-deployment
+  namespace: skala3-ai1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-glass-ai-server
+  template:
+    metadata:
+      labels:
+        app: smart-glass-ai-server
+    spec:
+      containers:
+      - name: ai-server-container
+        image: amdp-registry.skala-ai.com/skala26a-ai1/ai-server:latest
+        ports:
+        - containerPort: 8000
+
+        # 띄운 DB(sk007-project-db)를 찾아가도록 설정
+        env:
+        - name: DB_HOST
+          value: "sk007-project-db"
+        - name: DB_PORT
+          value: "3306"
+        - name: DB_USER
+          value: "sg_app"
+        - name: DB_PASSWORD
+          value: "sg_app_1"
+        - name: DB_NAME
+          value: "smart_glass_dev"

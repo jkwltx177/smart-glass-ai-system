@@ -1,0 +1,50 @@
+# 1. Auth 서버용 Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: sk007-auth-server-service
+  namespace: skala3-ai1
+spec:
+  selector:
+    app: auth-server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+
+---
+# 2. Auth 서버용 Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sk007-auth-server-deployment
+  namespace: skala3-ai1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-server
+  template:
+    metadata:
+      labels:
+        app: auth-server
+    spec:
+      containers:
+      - name: auth-server-container
+        # CI 파이프라인에서 Harbor에 올린 auth-server 이미지 경로
+        image: amdp-registry.skala-ai.com/skala26a-ai1/auth-server:latest
+        ports:
+        - containerPort: 8080
+        
+        # Auth 서버 또한 회원 정보 읽기위해 DB 연결
+        env:
+        - name: SPRING_DATASOURCE_URL
+          # jdbc:mariadb://<DB서비스이름>:<포트>/<데이터베이스명> 형식
+          value: "jdbc:mariadb://sk007-project-db:3306/smart_glass_dev"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "sg_app"
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: "sg_app_1"
+        # Hibernate(JPA)가 DB 잘 인식하도록... (선택사항이지만 권장)
+        - name: SPRING_JPA_DATABASE_PLATFORM
+          value: "org.hibernate.dialect.MariaDBDialect"
