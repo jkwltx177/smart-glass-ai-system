@@ -11,7 +11,6 @@ on:
 jobs:
   deploy-to-eks:
     name: Deploy to EKS
-    needs: [build-auth-server, build-ai-server] 
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
