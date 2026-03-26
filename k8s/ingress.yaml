@@ -31,3 +31,5 @@ spec:
             name: sk007-auth-server-service 
             port:
               number: 80
+
+# trigger cd pipeline
