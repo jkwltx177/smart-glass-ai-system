@@ -7,6 +7,8 @@ metadata:
     # 외부에서 /sk007-ai/주소 로 들어오면, 
     # 앞의 /sk007-ai를 자르고 주소만 서비스로 넘겨주는 설정 (rewrite)
     nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # 정규식 사용 허용 (rewrite-target에서 $2 쓰기 위해 nginx에게 허락 받기)
+    nginx.ingress.kubernetes.io/use-regex: "true"
 spec:
   ingressClassName: public-nginx
   rules:
@@ -15,7 +17,7 @@ spec:
       paths:
       # AI 서버로 가는 라우팅 규칙
       - path: /sk007-ai(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific # ★ Prefix 대신 사용
         backend:
           service:
             name: sk007-ai-server-service
@@ -25,7 +27,7 @@ spec:
               
       # Auth 서버(Spring Boot)로 가는 라우팅 규칙
       - path: /sk007-auth(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific # ★ Prefix 대신 사용
         backend:
           service:
             name: sk007-auth-server-service 
