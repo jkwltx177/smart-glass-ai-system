@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sk007-ingress
+  namespace: skala3-ai1
+  annotations:
+    # 외부에서 /sk007-ai/주소 로 들어오면, 
+    # 앞의 /sk007-ai를 자르고 주소만 서비스로 넘겨주는 설정 (rewrite)
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: public-nginx
+  rules:
+  - host: sk007-smart-glass.project.skala-ai.com
+    http:
+      paths:
+      # AI 서버로 가는 라우팅 규칙
+      - path: /sk007-ai(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: sk007-ai-server-service
+            port:
+              # Service에서 열어둔 포트 번호
+              number: 80 
+              
+      # Auth 서버(Spring Boot)로 가는 라우팅 규칙
+      - path: /sk007-auth(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: sk007-auth-server-service 
+            port:
+              number: 80
