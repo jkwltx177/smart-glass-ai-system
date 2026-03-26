@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: smart-glass-ai-system
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/jkwltx177/smart-glass-ai-system.git'
+    targetRevision: main
+    path: k8s  # yaml 파일들이 모여있는 디렉토리 경로
+  destination:
+    # ArgoCD가 설치된 동일한 클러스터
+    server: 'https://kubernetes.default.svc'
+    namespace: skala3-ai1
+  syncPolicy:
+    automated:
+      prune: true     # Git에서 삭제된 매니페스트는 클러스터에서도 삭제
+      selfHeal: true  # 클러스터 상태가 임의로 변경되면 Git 상태로 강제 복구

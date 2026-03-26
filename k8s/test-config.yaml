@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-test-config
+  namespace: skala3-ai1
+data:
+  test-key: "GitOps Sync Success"
