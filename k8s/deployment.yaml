@@ -31,3 +31,21 @@ spec:
           value: "sg_app_1"
         - name: DB_NAME
           value: "smart_glass_dev"
+        
+        # 컨테이너 내부 경로 연결
+        volumeMounts:
+        # 1. 리포트 저장용 연결
+        - name: ai-storage
+          mountPath: /app/storage/reports   # 실제 컨테이너 내부의 리포트 저장 경로
+          subPath: reports                  # 외장 하드(PVC) 안에 'reports'라는 폴더를 만들고 저장
+          
+        # 2. 모델 가중치 저장용 연결
+        - name: ai-storage
+          mountPath: /app/models/weights    # 실제 컨테이너 내부의 모델 가중치 저장 경로
+          subPath: weights                  # 외장 하드(PVC) 안에 'weights'라는 폴더를 만들고 저장
+
+      # 볼륨 정의: PVC 연결
+      volumes:
+      - name: ai-storage
+        persistentVolumeClaim:
+          claimName: sk007-ai-pvc

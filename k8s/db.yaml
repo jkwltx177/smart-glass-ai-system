@@ -49,14 +49,19 @@ spec:
         - --character-set-server=utf8mb4
         - --collation-server=utf8mb4_unicode_ci
         - --lower_case_table_names=1
-        
-        # 볼륨 마운트: 컨테이너 안의 특정 경로 아래 정의한 볼륨 연결
+
+        # volumeMounts에 PVC 연결 추가
         volumeMounts:
-        - name: initdb-volume
+        - name: db-storage       # PVC 외장 하드 연결
+          mountPath: /var/lib/mysql
+        - name: initdb-volume    # DB 초기화 스크립트 연결
           mountPath: /docker-entrypoint-initdb.d
           
-      # 볼륨 정의: ConfigMap을 볼륨으로 사용
+      # volumes에 PVC 연결 추가
       volumes:
+      - name: db-storage
+        persistentVolumeClaim:
+          claimName: sk007-db-pvc
       - name: initdb-volume
         configMap:
           name: mariadb-initdb-config
