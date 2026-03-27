@@ -12,11 +12,25 @@ spec:
       storage: 2Gi   # DB는 용량 더 잡기
 
 ---
-# AI 서버용 외장 하드
+# AI 서버용 외장 하드 (기존 v1 사용)
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: sk007-ai-pvc
+  namespace: skala3-ai1
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# AI 서버 v2용 외장 하드 (신규 추가)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sk007-ai-pvc-v2
   namespace: skala3-ai1
 spec:
   accessModes:

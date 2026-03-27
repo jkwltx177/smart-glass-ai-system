@@ -48,7 +48,7 @@ spec:
       volumes:
       - name: ai-storage
         persistentVolumeClaim:
-          claimName: sk007-ai-pvc
+          claimName: sk007-ai-pvc-v2        # 기존 sk007-ai-pvc 에서 sk007-ai-pvc-v2 로 변경
 ---
 apiVersion: v1
 kind: Service
