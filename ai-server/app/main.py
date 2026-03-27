@@ -13,7 +13,8 @@ from app.services.aiops import start_aiops_runtime, stop_aiops_runtime
 app = FastAPI(
     title="Smart Glass AI System API",
     description="Refactored API based on Detailed Incident and AIOps Specifications",
-    version="2.0.0"
+    version="2.0.0",
+    root_path="/sk007-ai" # Ingress 라우팅 시 Swagger UI 확인 위한 설정
 )
 
 app.add_middleware(
@@ -54,6 +55,10 @@ def ensure_aiops_tables() -> None:
 def shutdown_aiops_runtime() -> None:
     stop_aiops_runtime()
 
+@app.get("/")
+def read_root():
+    return {"message": "AI Server is running - NEW FEATURE ADDED", "version": "v2"}
+
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "v2"}

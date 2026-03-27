@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sk007-ai-server-deployment-v2
+  namespace: skala3-ai1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-glass-ai-server-v2
+  template:
+    metadata:
+      labels:
+        app: smart-glass-ai-server-v2
+    spec:
+      containers:
+      - name: ai-server-container
+        image: amdp-registry.skala-ai.com/skala26a-ai1/ai-server:v2
+        ports:
+        - containerPort: 8000
+
+        # 띄운 DB(sk007-project-db)를 찾아가도록 설정
+        env:
+        - name: DB_HOST
+          value: "sk007-project-db"
+        - name: DB_PORT
+          value: "3306"
+        - name: DB_USER
+          value: "sg_app"
+        - name: DB_PASSWORD
+          value: "sg_app_1"
+        - name: DB_NAME
+          value: "smart_glass_dev"
+        
+        # 컨테이너 내부 경로 연결
+        volumeMounts:
+        # 1. 리포트 저장용 연결
+        - name: ai-storage
+          mountPath: /app/storage/reports   # 실제 컨테이너 내부의 리포트 저장 경로
+          subPath: reports                  # 외장 하드(PVC) 안에 'reports'라는 폴더를 만들고 저장
+          
+        # 2. 모델 가중치 저장용 연결
+        - name: ai-storage
+          mountPath: /app/models/weights    # 실제 컨테이너 내부의 모델 가중치 저장 경로
+          subPath: weights                  # 외장 하드(PVC) 안에 'weights'라는 폴더를 만들고 저장
+
+      # 볼륨 정의: PVC 연결
+      volumes:
+      - name: ai-storage
+        persistentVolumeClaim:
+          claimName: sk007-ai-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sk007-ai-server-service-v2
+  namespace: skala3-ai1
+spec:
+  selector:
+    app: smart-glass-ai-server-v2
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000

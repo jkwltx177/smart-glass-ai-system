@@ -1,3 +1,4 @@
+# 기존 v1 서비스로 90% 라우팅되는 Main Ingress
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -20,7 +21,7 @@ spec:
         pathType: ImplementationSpecific # ★ Prefix 대신 사용
         backend:
           service:
-            name: sk007-ai-server-service
+            name: sk007-ai-server-service-v1
             port:
               # Service에서 열어둔 포트 번호
               number: 80 
@@ -30,8 +31,34 @@ spec:
         pathType: ImplementationSpecific # ★ Prefix 대신 사용
         backend:
           service:
-            name: sk007-auth-server-service 
+            name: sk007-auth-server-service
             port:
               number: 80
 
-# trigger cd pipeline
+---
+# 신규 v2 서비스로 10% 라우팅되는 Canary Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sk007-ai-ingress-canary
+  namespace: skala3-ai1
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # 카나리 배포 설정 및 가중치(10%) 지정
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "10"
+spec:
+  ingressClassName: public-nginx
+  rules:
+  - host: sk007-smart-glass.project.skala-ai.com
+    http:
+      paths:
+      # 호스트와 경로는 Main Ingress와 완전히 동일해야 함
+      - path: /sk007-ai(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: sk007-ai-server-service-v2
+            port:
+              number: 80

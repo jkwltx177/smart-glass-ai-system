@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: sk007-ai-server-deployment
+  name: sk007-ai-server-deployment-v1
   namespace: skala3-ai1
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: smart-glass-ai-server
+      app: smart-glass-ai-server-v1
   template:
     metadata:
       labels:
-        app: smart-glass-ai-server
+        app: smart-glass-ai-server-v1
     spec:
       containers:
       - name: ai-server-container
-        image: amdp-registry.skala-ai.com/skala26a-ai1/ai-server:latest
+        image: amdp-registry.skala-ai.com/skala26a-ai1/ai-server:v1
         ports:
         - containerPort: 8000
 
@@ -49,3 +49,16 @@ spec:
       - name: ai-storage
         persistentVolumeClaim:
           claimName: sk007-ai-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sk007-ai-server-service-v1
+  namespace: skala3-ai1
+spec:
+  selector:
+    app: smart-glass-ai-server-v1
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
